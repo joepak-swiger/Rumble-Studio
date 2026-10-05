@@ -50,3 +50,7 @@ Desktop.ini
 # IDE / editor junk
 .vscode/
 .idea/
+
+# Local Rumble Studio session state
+roster.json
+MUGEN_BATCH_IMPORT_REPORT.txt
