@@ -1,0 +1,74 @@
+{
+  "name": "Your Fighter",
+  "franchise": "Custom",
+  "stage": "",
+  "native_facing": "right",
+  "allow_horizontal_flip": true,
+  "scale": 4.0,
+  "stats": {
+    "hp": 100,
+    "speed": 1.0,
+    "attack": 1.0,
+    "defense": 1.0
+  },
+  "animations": {
+    "idle": "idle.gif",
+    "walk": "walk.gif",
+    "run": "run.gif",
+    "hit": "hit.gif",
+    "attack_1": "attack.gif",
+    "ko": "ko.gif",
+    "happy": "happy.gif",
+    "cheer": "cheer.gif",
+    "victory_jump": "victory_jump.gif"
+  },
+  "attacks": [
+    {
+      "name": "Basic Strike",
+      "type": "melee",
+      "animation": "attack_1",
+      "damage": 12,
+      "range": 55,
+      "cooldown": 0.9,
+      "knockback": 10,
+      "effect_color": "#FFD45A",
+      "weight": 1.0
+    },
+    {
+      "name": "Energy Shot",
+      "type": "projectile",
+      "animation": "attack_2",
+      "damage": 15,
+      "range": 300,
+      "cooldown": 1.3,
+      "knockback": 12,
+      "projectile_speed": 290,
+      "hit_radius": 20,
+      "effect_color": "#65C7FF",
+      "weight": 1.0,
+      "min_range": 70
+    },
+    {
+      "name": "Power Beam",
+      "type": "beam",
+      "animation": "attack_3",
+      "damage": 18,
+      "range": 340,
+      "cooldown": 1.7,
+      "knockback": 15,
+      "effect_color": "#B983FF",
+      "weight": 0.6,
+      "min_range": 90
+    }
+  ],
+  "ai": {
+    "profile": "auto",
+    "retaliation": 0.55,
+    "evasion": 0.3
+  },
+  "transformations": [],
+  "mugen_locks": {
+    "animations": [],
+    "attacks": []
+  }
+}

@@ -1,0 +1,52 @@
+# ==============================
+# Rumble Studio - Git Ignore
+# ==============================
+
+# Personal / third-party character source library
+Characters/
+
+# Imported fighter libraries and copyrighted sprite assets
+assets/fighters/
+
+# Generated videos
+renders/
+
+# Temporary import / extraction data
+temp/
+tmp/
+imports/
+cache/
+
+# Python junk
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# MUGEN / archive source packages
+*.rar
+*.7z
+
+# Generated media
+*.mp4
+*.avi
+*.webm
+
+# Logs / temporary reports
+*.log
+
+# Old Rumble Studio release folders
+Rumble-Studio-v0.*/
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# IDE / editor junk
+.vscode/
+.idea/

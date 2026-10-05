@@ -1,0 +1,32 @@
+# Rumble Studio
+
+Rumble Studio is a local sprite-battle simulator and video generator.
+
+It creates autonomous battles between sprite-based fighters and renders the results as vertical videos suitable for experimenting with YouTube Shorts, TikTok, and similar formats.
+
+## Current Features
+
+- Free-for-all automated battles
+- Universal fighter system
+- Melee, projectile, and beam attacks
+- HP, knockouts, eliminations, and winner detection
+- Fighter AI personalities
+- Digimon World Championship sprite import
+- MUGEN character import
+- Batch MUGEN import
+- Animation and attack mapping locks
+- Transformation trees
+- Random and multiverse roster selection
+- Vertical video rendering
+
+## Character Assets
+
+Rumble Studio itself does not require copyrighted character assets to be stored in this repository.
+
+Personal sprite collections, MUGEN characters, imported fighters, and rendered videos are intentionally excluded from Git.
+
+## Development Status
+
+Current baseline: v0.13
+
+Rumble Studio is under active development.

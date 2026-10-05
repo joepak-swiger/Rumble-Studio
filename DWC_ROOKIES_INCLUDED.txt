@@ -1,0 +1,44 @@
+RUMBLE STUDIO v0.13 - BUNDLED DWC ROOKIES
+==========================================
+
+Total Rookie fighter sets: 38
+Each set: 40 GIF states (0 through 39)
+
+ 1. Agumon          archive id 201  (agumon)  states: 40/40
+ 2. Alraumon        archive id 242  (alraumon)  states: 40/40
+ 3. Armadillomon    archive id 202  (armadimon)  states: 40/40
+ 4. Bakumon         archive id 225  (bakumon)  states: 40/40
+ 5. Biyomon         archive id 230  (piyomon)  states: 40/40
+ 6. BlackAgumon     archive id 240  (kuroagumon)  states: 40/40
+ 7. Candlemon       archive id 211  (candmon)  states: 40/40
+ 8. Coronamon       archive id 238  (coronamon)  states: 40/40
+ 9. DemiDevimon     archive id 229  (picodevimon)  states: 40/40
+10. Dracomon        archive id 224  (dracomon)  states: 40/40
+11. Elecmon         archive id 203  (elecmon)  states: 40/40
+12. Falcomon        archive id 231  (falcomon)  states: 40/40
+13. Floramon        archive id 233  (floramon)  states: 40/40
+14. Gabumon         archive id 208  (gabumon)  states: 40/40
+15. Gaomon          archive id 205  (gaomon)  states: 40/40
+16. Gazimon         archive id 206  (gazimon)  states: 40/40
+17. Gizamon         archive id 210  (gizamon)  states: 40/40
+18. Goblimon        archive id 218  (goburimon)  states: 40/40
+19. Gomamon         archive id 219  (gomamon)  states: 40/40
+20. Gotsumon        archive id 217  (gottumon)  states: 40/40
+21. Guilmon         archive id 255  (guilmon)  states: 40/40
+22. Hagurumon       archive id 226  (hagurumon)  states: 40/40
+23. Kamemon         archive id 209  (kamemon)  states: 40/40
+24. Kunemon         archive id 214  (kunemon)  states: 40/40
+25. Lunamon         archive id 239  (lunamon)  states: 40/40
+26. Mushmon         archive id 235  (mushmon)  states: 40/40
+27. Otamamon        archive id 204  (otamamon)  states: 40/40
+28. Palmon          archive id 228  (palmon)  states: 40/40
+29. Patamon         archive id 227  (patamon)  states: 40/40
+30. Psychemon       archive id 241  (psychemon)  states: 40/40
+31. Renamon         archive id 237  (renamon)  states: 40/40
+32. Salamon         archive id 232  (plotmon)  states: 40/40
+33. SnowAgumon      archive id 236  (yukiagumon)  states: 40/40
+34. Tentomon        archive id 222  (tentomon)  states: 40/40
+35. Terriermon      archive id 221  (terriermon)  states: 40/40
+36. ToyAgumon       archive id 223  (toyagumon)  states: 40/40
+37. Tsukaimon       archive id 243  (tsukaimon)  states: 40/40
+38. Veemon          archive id 244  (vmon)  states: 40/40

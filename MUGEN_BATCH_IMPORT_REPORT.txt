@@ -1,0 +1,40 @@
+RUMBLE STUDIO v0.13 — MUGEN BATCH IMPORT REPORT
+=================================================
+Mode: FULL
+Requested sources: 28
+Imported: 28
+Failed: 0
+
+IMPORTED
+--------
+OK  Arbok.zip -> Arbok  (1490 sprites / 259 AIR renders)
+OK  Ash_Ketchum.zip -> Ash Ketchum  (977 sprites / 173 AIR renders)
+OK  BBulbasaurSS.zip -> Bulbasaur  (161 sprites / 93 AIR renders)
+OK  BCharmanderSS.zip -> Charmander  (118 sprites / 91 AIR renders)
+OK  BChicoritaSS.zip -> Chicorita  (153 sprites / 90 AIR renders)
+OK  BCyndaquilSS.zip -> Cyndaquil  (120 sprites / 92 AIR renders)
+OK  BlazikenEdit.rar -> Blaziken  (162 sprites / 114 AIR renders)
+OK  BSquirtleSS.zip -> Squirtle  (157 sprites / 91 AIR renders)
+OK  BTotodileSS.zip -> Totodile  (153 sprites / 86 AIR renders)
+OK  caterpie.zip -> Caterpie  (190 sprites / 105 AIR renders)
+OK  FakeMew.zip -> Mew? V1.11  (73 sprites / 59 AIR renders)
+OK  hino.rar -> HINOARASHII  (77 sprites / 72 AIR renders)
+OK  Hitmonchan_PCC.zip -> Hitmonchan  (414 sprites / 139 AIR renders)
+OK  Ho-oh.rar -> Ho-oh  (123 sprites / 98 AIR renders)
+OK  Ivysaur.rar -> Ivysaur  (502 sprites / 181 AIR renders)
+OK  JoeyFaustPolitoed.zip -> Politoed  (111 sprites / 95 AIR renders)
+OK  Litten.zip -> Litten  (708 sprites / 154 AIR renders)
+OK  Magcargo.zip -> Magcargo  (394 sprites / 103 AIR renders)
+OK  Mary960.7z -> Mary  (347 sprites / 147 AIR renders)
+OK  meowth.zip -> Meowth  (722 sprites / 133 AIR renders)
+OK  omega_piplup.rar -> Omega Piplup  (542 sprites / 269 AIR renders)
+OK  PikachuFF.zip -> Pikachu  (229 sprites / 161 AIR renders)
+OK  poktrai.rar -> Pokemon Trainer  (153 sprites / 50 AIR renders)
+OK  Slugma.zip -> Slugma  (383 sprites / 104 AIR renders)
+OK  squirtle0.rar -> squirtle  (18 sprites / 93 AIR renders)
+OK  TFGAF-POKEMON-Hitmontop.zip -> Hitmontop  (119 sprites / 97 AIR renders)
+OK  TFGAF-POKEMON-Monferno.rar -> Monferno  (105 sprites / 95 AIR renders)
+OK  TFGAF-POKEMON-Poliwrath.zip -> Poliwrath  (122 sprites / 95 AIR renders)
+
+FAILED
+------

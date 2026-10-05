@@ -1,0 +1,56 @@
+RUMBLE STUDIO v0.13 — TRANSFORMATION LAB GUIDE
+================================================
+
+The battle rules are the same as v0.10, but editing is now line-wide instead of one fighter at a time.
+
+LINE MAP WORKFLOW
+-----------------
+- Root / starting form controls which connected tree is displayed.
+- Click any form in the Line Map to edit its outgoing branches.
+- Add multiple branches with different chances for non-linear systems such as Digimon or Dragon Ball.
+- Follow Target jumps into the selected target's own outgoing branches without leaving the page.
+- SAVE ALL LINE CHANGES writes every edited source form back to its fighter.json.
+
+QUICK LINEAR CHAIN
+------------------
+Use the six form boxes for straightforward lines. Example:
+  Charmander -> Charmeleon -> Charizard
+With Replace enabled, each source form gets exactly one next-form rule.
+
+BRANCHING EXAMPLE
+-----------------
+Base Goku can directly have:
+  35% -> Super Saiyan
+  20% -> Super Saiyan 2
+  10% -> Super Saiyan 3
+   8% -> Super Saiyan God
+   2% -> Ultra Instinct
+Total = 75%, so each KO has a 75% chance to transform and a 25% chance to remain Base.
+
+RUMBLE STUDIO v0.13 — TRANSFORMATION GUIDE
+==========================================
+
+HOW TO BUILD A CHAIN
+
+1. Make/import every form as its own fighter.
+2. Select the starting form in Fighter Library.
+3. Open Transformations.
+4. Click + Add Branch.
+5. Pick the target fighter/form and set the chance after each KO.
+6. Save the fighter.
+7. Select the next form and repeat if it can transform again.
+
+BRANCHING EXAMPLE
+Agumon:
+  60% -> Greymon
+  20% -> Tyrannomon
+Result: 80% overall chance after a KO; 20% no transform. If a transformation happens,
+Greymon is chosen 60/80 of the transform outcomes and Tyrannomon 20/80.
+
+HP RULE
+The current HP percentage carries over to the new max HP. A rule can then add an optional
+Heal % of the new max HP, capped at full health.
+
+CHAIN RULE
+Once a fighter changes form, the NEW fighter pack's transformation list becomes active.
+That is how Agumon -> Greymon -> MetalGreymon -> WarGreymon or long DBZ form chains work.

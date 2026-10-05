@@ -1,0 +1,67 @@
+RUMBLE STUDIO CHANGELOG
+=======================
+
+v0.13 — MUGEN Mapping Locks
+- Added per-animation Lock checkboxes in Fighter Editor.
+- Added attack Lock column plus Lock / Unlock Selected Attack control.
+- Added Lock all mapped and Unlock all shortcuts.
+- Locked attack slots automatically protect their corresponding animation mapping.
+- Renamed rescan to ↻ RESCAN UNLOCKED MUGEN.
+- MUGEN rescans now preserve exact locked animation paths and attack definitions while researching only unlocked slots.
+- Lock toggles persist immediately to fighter.json, so a user can lock and rescan without saving unrelated edits.
+- Rescan keeps existing MUGEN action GIFs in place so a locked last-known-good action is not destroyed if a later source scan cannot render it.
+- MUGEN_IMPORT_REPORT.txt now records locked/preserved/refreshed slots.
+
+v0.12 — Fighter Maintenance + Deep MUGEN Rescan
+- Added DELETE FIGHTER in Fighter Editor with confirmation.
+- Deleting a fighter also removes it from the current roster and cleans saved transformation branches that point to it.
+- Added RESET TO SAVED to discard unsaved editor/Lab changes for the current fighter and reload fighter.json.
+- Added ↻ RESCAN MUGEN for imported MUGEN fighters.
+- MUGEN rescan can reuse the stored original source path or ask you to locate the archive/DEF/folder again.
+- Rescanning happens in-place instead of creating a duplicate fighter.
+- Saved balancing, Stage/Form, facing, scale, AI, and transformations are preserved during MUGEN rescan.
+- Rebuilt MUGEN attack discovery to deep-scan AIR plus CMD ChangeState blocks and CNS/ST StateDefs.
+- Move-linked state definitions can now map to the actual AIR animation instead of relying only on generic action-number ranges.
+- Added basic automatic melee/projectile/beam guesses from detected move names such as Punch, Blast, Beam, Kamehameha, Shot, etc.
+- MUGEN_IMPORT_REPORT.txt now includes ranked deep-scan attack candidates and where each candidate came from.
+- New MUGEN imports remember their original source path for one-click rescans later.
+
+v0.11 — Transformation Lab
+- Rebuilt the Transformations tab into a whole-line editor.
+- Pick a root form and edit every connected form without leaving the page.
+- Line Map shows branching evolution / power-up paths and lets you click directly into any form.
+- Source form dropdown allows direct editing of any fighter's outgoing transformations.
+- Follow Target jumps from a branch to that target's own branches on the same page.
+- Changes for multiple forms are staged together and saved with SAVE ALL LINE CHANGES.
+- Branch summary explains total transformation chance vs chance to stay in the current form.
+- Direct jumps are supported naturally, e.g. Base Goku can branch directly to SSJ1, SSJ2, SSJ3, God, UI, etc.
+- Added Quick Linear Chain Builder for Pokemon and straightforward Digimon/evolution lines.
+- Quick Chain supports up to six forms, configurable chance/heal/announcement, and replace-or-merge behavior.
+- Clicking the Fighter Library while Transformation Lab is open no longer throws you back to Fighter Editor.
+- Existing v0.10 transformation engine and batch MUGEN import remain intact.
+
+v0.10 — Transformations + Batch MUGEN
+- Added active after-elimination transformations/evolutions.
+- Added branching transformation rules with per-target percentage chances.
+- Added HP-percent carryover plus optional heal-on-transform.
+- Transforming swaps to the target pack's sprites, stats, attacks, scale and AI while preserving position, target and kill count.
+- Added transformation announcement/pulse effects to Preview and rendered videos.
+- Added a dedicated Transformations tab with Add/Edit/Remove/Clear branch controls.
+- Added mass MUGEN import from multiple selected archives/DEF files.
+- Added recursive MUGEN folder scanning for character collections / chars folders.
+- Added QUICK batch mode (core animations only) and FULL batch mode (up to 600 AIR actions per character).
+- Added MUGEN_BATCH_IMPORT_REPORT.txt output for large batches.
+- Bundled Greymon, MetalGreymon and WarGreymon as convenient transformation test targets.
+
+v0.9 — Roster Tools + Clean KOs
+- Defeated fighters fade and disappear from the battlefield after a short KO beat.
+- Added search/filter controls to Fighter Library and Battle Roster.
+- Added Stage / Form metadata.
+- Added random X fighter selection by franchise/stage and spread-franchise Multiverse mode.
+
+v0.8 — MUGEN + DWC Import Studio
+- Fixed SFF v1 sprite decoding against real MUGEN characters.
+- Added DWC 0-39 automatic sprite-set import.
+- Bundled all 38 Rookie DWC fighters.
+
+Earlier versions built the universal fighter system, combat engine, AI, victory presentation, and video renderer.
