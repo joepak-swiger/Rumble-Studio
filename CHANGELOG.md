@@ -1,5 +1,20 @@
 # Rumble Studio Changelog
 
+## v0.15
+
+### Battle Opening & Spawn Director
+
+- Added fair circular starting formations and automatic two-ring layouts for larger rumbles.
+- Fighters enter clockwise beginning at 12 o'clock instead of appearing randomly.
+- Added Digital Beam, Flash, Aura, Portal, Teleport, and None entrance effects.
+- Added WHO WILL WIN? / CHOOSE YOUR FIGHTER presentation, 3-2-1 countdown, and RUMBLE! release.
+- AI combat is frozen until the opening finishes.
+- Added a per-fighter Entrance animation slot in Fighter Editor and MUGEN animation mapping.
+- Added Entrance Studio for shared entrance effects by franchise and/or Stage/Form.
+- Digimon defaults to Digital Beam, Pokemon to Flash, Dragon Ball to Aura, and Kingdom Hearts to Portal unless overridden.
+- Battle Roster now has opening controls for effect, delay, hold time, countdown, and formation.
+
+
 ## v0.14
 
 ### MUGEN Move Lab

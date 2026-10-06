@@ -22,9 +22,11 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets" / "fighters"
 ROSTER_FILE = ROOT / "roster.json"
 RENDERS = ROOT / "renders"
+ENTRANCE_PROFILE_FILE = ROOT / "entrance_profiles.json"
 
 ANIMATION_SLOTS = [
     ("idle", "Idle"),
+    ("entrance", "Entrance"),
     ("walk", "Walk"),
     ("run", "Run"),
     ("hit", "Hit / Hurt"),
@@ -45,6 +47,34 @@ SUPPORTED_IMAGES = {".png", ".gif", ".webp", ".jpg", ".jpeg", ".bmp", ".apng"}
 AI_PROFILES = ["auto", "aggressive", "brawler", "ranged", "defensive", "opportunist", "skirmisher", "chaotic"]
 ATTACK_TYPES = ["melee", "projectile", "beam"]
 ATTACK_ANIMS = ["attack_1", "attack_2", "attack_3", "attack_4", "idle"]
+ENTRANCE_STYLES = ["Auto / Profile", "Digital Beam", "Flash", "Aura", "Portal", "Teleport", "None"]
+FORMATION_STYLES = ["Auto", "Circle", "Two Rings", "Random"]
+
+
+def default_entrance_profiles() -> dict:
+    return {
+        "default": "Flash",
+        "rules": [
+            {"franchise": "Digimon", "stage": "", "style": "Digital Beam"},
+            {"franchise": "Pokemon", "stage": "", "style": "Flash"},
+            {"franchise": "Dragon Ball", "stage": "", "style": "Aura"},
+            {"franchise": "Kingdom Hearts", "stage": "", "style": "Portal"},
+        ],
+    }
+
+
+def load_entrance_profiles() -> dict:
+    data = read_json(ENTRANCE_PROFILE_FILE, {})
+    if not isinstance(data, dict) or not isinstance(data.get("rules", []), list):
+        return default_entrance_profiles()
+    data.setdefault("default", "Flash")
+    data.setdefault("rules", [])
+    return data
+
+
+def save_entrance_profiles(data: dict) -> None:
+    ENTRANCE_PROFILE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
 
 
 def safe_pack_name(name: str) -> str:
@@ -113,20 +143,31 @@ def load_roster() -> dict:
     data = read_json(ROSTER_FILE, {})
     if not isinstance(data, dict):
         data = {}
-    data.setdefault("studio", {"title": "RUMBLE STUDIO", "subtitle": "v0.14 • MUGEN Move Lab"})
+    data.setdefault("studio", {"title": "RUMBLE STUDIO", "subtitle": "v0.15 • Battle Opening"})
     data.setdefault("fighters", [])
+    data.setdefault("opening", {
+        "enabled": True,
+        "entrance_effect": "Auto / Profile",
+        "entrance_delay": 0.18,
+        "who_will_win": True,
+        "choose_hold": 2.5,
+        "countdown": True,
+        "formation": "Auto",
+    })
     return data
 
 
-def write_roster(pack_names: List[str]) -> None:
+def write_roster(pack_names: List[str], opening: Optional[dict] = None) -> None:
     if len(pack_names) < 2:
         raise ValueError("A rumble needs at least two fighters.")
     data = load_roster()
     data["studio"] = {
         "title": data.get("studio", {}).get("title", "RUMBLE STUDIO"),
-        "subtitle": "v0.14 • MUGEN Move Lab",
+        "subtitle": "v0.15 • Battle Opening",
     }
     data["fighters"] = [{"pack": p} for p in pack_names]
+    if opening is not None:
+        data["opening"] = dict(opening)
     ROSTER_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
@@ -422,7 +463,7 @@ class TransformationDialog(tk.Toplevel):
 class StudioApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Rumble Studio v0.14 — MUGEN Move Lab")
+        self.root.title("Rumble Studio v0.15 — Battle Opening & Entrance Studio")
         self.root.geometry("1220x830")
         self.root.minsize(1050, 720)
 
@@ -491,6 +532,21 @@ class StudioApp:
         self.retaliation_var = tk.StringVar(value="0.55")
         self.evasion_var = tk.StringVar(value="0.25")
         self.add_roster_var = tk.BooleanVar(value=True)
+
+        # v0.15 Battle Opening & Spawn Director
+        opening = load_roster().get("opening", {})
+        self.opening_enabled_var = tk.BooleanVar(value=bool(opening.get("enabled", True)))
+        self.opening_effect_var = tk.StringVar(value=str(opening.get("entrance_effect", "Auto / Profile")))
+        self.opening_delay_var = tk.StringVar(value=str(opening.get("entrance_delay", 0.18)))
+        self.opening_who_var = tk.BooleanVar(value=bool(opening.get("who_will_win", True)))
+        self.opening_hold_var = tk.StringVar(value=str(opening.get("choose_hold", 2.5)))
+        self.opening_countdown_var = tk.BooleanVar(value=bool(opening.get("countdown", True)))
+        self.opening_formation_var = tk.StringVar(value=str(opening.get("formation", "Auto")))
+
+        # Entrance Studio profile editor. Profiles are LOCAL user data and are not pushed to GitHub.
+        self.entrance_profile_franchise_var = tk.StringVar(value="Digimon")
+        self.entrance_profile_stage_var = tk.StringVar(value="Any stage / form")
+        self.entrance_profile_style_var = tk.StringVar(value="Digital Beam")
         self.status_var = tk.StringVar(value="Ready. Create a fighter or choose one from the library.")
 
         self._build_ui()
@@ -560,16 +616,19 @@ class StudioApp:
         self.editor_tab = ttk.Frame(self.tabs, padding=10)
         self.transform_tab = ttk.Frame(self.tabs, padding=12)
         self.move_lab_tab = ttk.Frame(self.tabs, padding=12)
+        self.entrance_tab = ttk.Frame(self.tabs, padding=12)
         self.roster_tab = ttk.Frame(self.tabs, padding=10)
         self.help_tab = ttk.Frame(self.tabs, padding=14)
         self.tabs.add(self.editor_tab, text="Fighter Editor")
         self.tabs.add(self.transform_tab, text="Transformation Lab")
         self.tabs.add(self.move_lab_tab, text="MUGEN Move Lab")
+        self.tabs.add(self.entrance_tab, text="Entrance Studio")
         self.tabs.add(self.roster_tab, text="Battle Roster")
         self.tabs.add(self.help_tab, text="Quick Guide")
         self._build_editor()
         self._build_transform_tab()
         self._build_move_lab_tab()
+        self._build_entrance_tab()
         self._build_roster_tab()
         self._build_help_tab()
 
@@ -921,9 +980,139 @@ class StudioApp:
             anchor="w", pady=(8, 0)
         )
 
+    def _build_entrance_tab(self):
+        self.entrance_tab.columnconfigure(0, weight=1)
+        self.entrance_tab.rowconfigure(2, weight=1)
+        ttk.Label(
+            self.entrance_tab,
+            text="Entrance Studio — Set shared entrance effects by franchise and/or Stage/Form",
+            font=("Segoe UI", 11, "bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        edit = ttk.LabelFrame(self.entrance_tab, text="Entrance Profile", padding=10)
+        edit.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        edit.columnconfigure(1, weight=1)
+        ttk.Label(edit, text="Franchise").grid(row=0, column=0, sticky="w")
+        self.entrance_franchise_combo = ttk.Combobox(edit, textvariable=self.entrance_profile_franchise_var, state="readonly")
+        self.entrance_franchise_combo.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        ttk.Label(edit, text="Stage / Form").grid(row=0, column=2, sticky="w")
+        self.entrance_stage_combo = ttk.Combobox(edit, textvariable=self.entrance_profile_stage_var, state="readonly", width=20)
+        self.entrance_stage_combo.grid(row=0, column=3, padx=(6, 12))
+        ttk.Label(edit, text="Effect").grid(row=0, column=4, sticky="w")
+        ttk.Combobox(edit, textvariable=self.entrance_profile_style_var, values=ENTRANCE_STYLES[1:], state="readonly", width=16).grid(row=0, column=5, padx=(6, 12))
+        ttk.Button(edit, text="SAVE / UPDATE PROFILE", command=self.save_entrance_profile_rule).grid(row=0, column=6)
+
+        ttk.Label(
+            edit,
+            text="Examples: Digimon + Any stage = Digital Beam. Dragon Ball + Any stage = Aura. "
+                 "A specific franchise + stage rule overrides a franchise-wide rule.",
+            foreground="#666", wraplength=900,
+        ).grid(row=1, column=0, columnspan=7, sticky="w", pady=(8, 0))
+
+        box = ttk.LabelFrame(self.entrance_tab, text="Current Entrance Profiles", padding=8)
+        box.grid(row=2, column=0, sticky="nsew")
+        box.columnconfigure(0, weight=1)
+        box.rowconfigure(0, weight=1)
+        self.entrance_profile_tree = ttk.Treeview(box, columns=("franchise", "stage", "style"), show="headings", height=16)
+        for key, title, width in (("franchise", "Franchise", 220), ("stage", "Stage / Form", 220), ("style", "Entrance Effect", 180)):
+            self.entrance_profile_tree.heading(key, text=title)
+            self.entrance_profile_tree.column(key, width=width, anchor="w")
+        self.entrance_profile_tree.grid(row=0, column=0, sticky="nsew")
+        sb = ttk.Scrollbar(box, orient="vertical", command=self.entrance_profile_tree.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.entrance_profile_tree.configure(yscrollcommand=sb.set)
+        controls = ttk.Frame(box)
+        controls.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(controls, text="Delete Selected Profile", command=self.delete_entrance_profile_rule).pack(side="left")
+        ttk.Button(controls, text="Reset Built-in Profiles", command=self.reset_entrance_profiles).pack(side="left", padx=6)
+        ttk.Label(controls, text="Per-fighter Entrance animation is mapped in Fighter Editor / MUGEN Move Lab.", foreground="#666").pack(side="right")
+        self.refresh_entrance_profile_tree()
+
+    def refresh_entrance_profile_tree(self):
+        if not hasattr(self, "entrance_profile_tree"):
+            return
+        for item in self.entrance_profile_tree.get_children():
+            self.entrance_profile_tree.delete(item)
+        data = load_entrance_profiles()
+        self.entrance_profile_tree.insert("", "end", iid="default", values=("Default / All", "Any stage / form", data.get("default", "Flash")))
+        for i, rule in enumerate(data.get("rules", [])):
+            franchise = str(rule.get("franchise", "") or "Default / All")
+            stage = str(rule.get("stage", "") or "Any stage / form")
+            style = str(rule.get("style", "Flash"))
+            self.entrance_profile_tree.insert("", "end", iid=f"rule_{i}", values=(franchise, stage, style))
+
+    def save_entrance_profile_rule(self):
+        franchise = self.entrance_profile_franchise_var.get().strip()
+        stage = self.entrance_profile_stage_var.get().strip()
+        style = self.entrance_profile_style_var.get().strip() or "Flash"
+        if franchise == "Default / All":
+            franchise = ""
+        if stage == "Any stage / form":
+            stage = ""
+        data = load_entrance_profiles()
+        if not franchise and not stage:
+            data["default"] = style
+        else:
+            rules = [dict(x) for x in data.get("rules", []) if isinstance(x, dict)]
+            replaced = False
+            for i, old in enumerate(rules):
+                if str(old.get("franchise", "")) == franchise and str(old.get("stage", "")) == stage:
+                    rules[i] = {"franchise": franchise, "stage": stage, "style": style}
+                    replaced = True
+                    break
+            if not replaced:
+                rules.append({"franchise": franchise, "stage": stage, "style": style})
+            data["rules"] = rules
+        save_entrance_profiles(data)
+        self.refresh_entrance_profile_tree()
+        self.set_status(f"Entrance profile saved: {franchise or 'Default'} / {stage or 'Any stage'} → {style}")
+
+    def delete_entrance_profile_rule(self):
+        sel = self.entrance_profile_tree.selection() if hasattr(self, "entrance_profile_tree") else ()
+        if not sel:
+            return
+        iid = sel[0]
+        if iid == "default":
+            messagebox.showinfo("Entrance Studio", "The default profile cannot be deleted. Change it instead.", parent=self.root)
+            return
+        try:
+            idx = int(iid.split("_", 1)[1])
+        except Exception:
+            return
+        data = load_entrance_profiles()
+        rules = [dict(x) for x in data.get("rules", []) if isinstance(x, dict)]
+        if 0 <= idx < len(rules):
+            rules.pop(idx)
+            data["rules"] = rules
+            save_entrance_profiles(data)
+        self.refresh_entrance_profile_tree()
+
+    def reset_entrance_profiles(self):
+        if not messagebox.askyesno("Entrance Studio", "Reset entrance profiles to the built-in defaults?", parent=self.root):
+            return
+        save_entrance_profiles(default_entrance_profiles())
+        self.refresh_entrance_profile_tree()
+        self.set_status("Entrance profiles reset to built-in defaults.")
+
+    def _opening_settings(self) -> dict:
+        try:
+            delay = max(0.05, min(1.0, float(self.opening_delay_var.get())))
+            hold = max(0.0, min(10.0, float(self.opening_hold_var.get())))
+        except ValueError:
+            raise ValueError("Opening entrance delay and WHO WILL WIN hold must be numbers.")
+        return {
+            "enabled": bool(self.opening_enabled_var.get()),
+            "entrance_effect": self.opening_effect_var.get() or "Auto / Profile",
+            "entrance_delay": round(delay, 3),
+            "who_will_win": bool(self.opening_who_var.get()),
+            "choose_hold": round(hold, 2),
+            "countdown": bool(self.opening_countdown_var.get()),
+            "formation": self.opening_formation_var.get() or "Auto",
+        }
+
     def _build_roster_tab(self):
         self.roster_tab.columnconfigure(0, weight=1)
-        self.roster_tab.rowconfigure(3, weight=1)
+        self.roster_tab.rowconfigure(4, weight=1)
         ttk.Label(
             self.roster_tab,
             text="Choose any saved fighters for the next rumble. Search, filter, or let Studio pick a random cast.",
@@ -967,8 +1156,21 @@ class StudioApp:
             random_box, text="Tip: Digimon + Rookie = random Rookie rumble; Multiverse = everyone.", foreground="#666"
         ).pack(side="left", padx=(8,0))
 
+        opening_box = ttk.LabelFrame(self.roster_tab, text="Battle Opening & Spawn Director", padding=8)
+        opening_box.grid(row=3, column=0, sticky="ew", pady=(0,8))
+        ttk.Checkbutton(opening_box, text="Enable opening", variable=self.opening_enabled_var).pack(side="left")
+        ttk.Label(opening_box, text="Entrance FX").pack(side="left", padx=(12,4))
+        ttk.Combobox(opening_box, textvariable=self.opening_effect_var, values=ENTRANCE_STYLES, state="readonly", width=16).pack(side="left")
+        ttk.Label(opening_box, text="Delay").pack(side="left", padx=(10,4))
+        ttk.Spinbox(opening_box, from_=0.05, to=1.0, increment=0.05, textvariable=self.opening_delay_var, width=5).pack(side="left")
+        ttk.Checkbutton(opening_box, text="WHO WILL WIN?", variable=self.opening_who_var).pack(side="left", padx=(12,2))
+        ttk.Spinbox(opening_box, from_=0, to=10, increment=0.5, textvariable=self.opening_hold_var, width=5).pack(side="left")
+        ttk.Checkbutton(opening_box, text="Countdown", variable=self.opening_countdown_var).pack(side="left", padx=(12,4))
+        ttk.Label(opening_box, text="Formation").pack(side="left", padx=(8,4))
+        ttk.Combobox(opening_box, textvariable=self.opening_formation_var, values=FORMATION_STYLES, state="readonly", width=11).pack(side="left")
+
         container = ttk.LabelFrame(self.roster_tab, text="Current Battle Roster", padding=10)
-        container.grid(row=3, column=0, sticky="nsew")
+        container.grid(row=4, column=0, sticky="nsew")
         container.columnconfigure(0, weight=1)
         container.rowconfigure(0, weight=1)
         self.roster_canvas = tk.Canvas(container, highlightthickness=0)
@@ -982,7 +1184,7 @@ class StudioApp:
         self.roster_canvas.bind("<Configure>", lambda e: self.roster_canvas.itemconfigure(self.roster_window, width=e.width))
 
         controls = ttk.Frame(self.roster_tab)
-        controls.grid(row=4, column=0, sticky="ew", pady=(10,0))
+        controls.grid(row=5, column=0, sticky="ew", pady=(10,0))
         ttk.Button(controls, text="Select All", command=self.select_all_roster).pack(side="left")
         ttk.Button(controls, text="Clear", command=self.clear_roster).pack(side="left", padx=4)
         ttk.Button(controls, text="Select DWC Rookies", command=self.select_dwc_rookies).pack(side="left", padx=4)
@@ -992,7 +1194,10 @@ class StudioApp:
 
     def _build_help_tab(self):
         text = (
-            "RUMBLE STUDIO v0.14 — QUICK GUIDE\n\n"
+            "RUMBLE STUDIO v0.15 — QUICK GUIDE\n\n"
+            "BATTLE OPENING & ENTRANCE STUDIO\n"
+            "v0.15 starts fighters in fair circular/two-ring formations. Fighters enter clockwise from 12 o'clock, then WHO WILL WIN?, a countdown, and RUMBLE! can play before AI combat starts. "
+            "Fighter Editor now has an Entrance animation slot. Entrance Studio assigns shared visual effects by franchise and/or Stage/Form; specific franchise+stage rules override franchise-wide defaults.\n\n"
             "CLEAN KOs\n"
             "Defeated fighters show their KO animation briefly, fade, then disappear from the arena. "
             "They stay crossed out in the HUD/results, so large rumbles stay readable without corpse piles.\n\n"
@@ -1052,6 +1257,16 @@ class StudioApp:
                 self.roster_franchise_filter_var.set("All franchises")
             if self.roster_stage_filter_var.get() not in lib_st:
                 self.roster_stage_filter_var.set("All stages")
+
+        if hasattr(self, "entrance_franchise_combo"):
+            entrance_fr = ["Default / All", *franchises]
+            entrance_st = ["Any stage / form", *stages]
+            self.entrance_franchise_combo["values"] = entrance_fr
+            self.entrance_stage_combo["values"] = entrance_st
+            if self.entrance_profile_franchise_var.get() not in entrance_fr:
+                self.entrance_profile_franchise_var.set("Default / All")
+            if self.entrance_profile_stage_var.get() not in entrance_st:
+                self.entrance_profile_stage_var.set("Any stage / form")
 
         if hasattr(self, "random_franchise_combo"):
             rnd_fr = ["MULTIVERSE (spread franchises)", *franchises]
@@ -1227,7 +1442,7 @@ class StudioApp:
                 failed.append((source, str(e)))
 
         lines = [
-            "RUMBLE STUDIO v0.14 — MUGEN BATCH IMPORT REPORT",
+            "RUMBLE STUDIO v0.15 — MUGEN BATCH IMPORT REPORT",
             "=================================================",
             f"Mode: {mode}",
             f"Requested sources: {len(sources)}",
@@ -2648,7 +2863,7 @@ class StudioApp:
     def save_roster_gui(self, quiet=False) -> bool:
         try:
             selected = self.selected_roster()
-            write_roster(selected)
+            write_roster(selected, opening=self._opening_settings())
             self.set_status(f"Battle roster saved with {len(selected)} fighters.")
             if not quiet:
                 messagebox.showinfo("Roster saved", f"Ready to rumble with {len(selected)} fighters.", parent=self.root)

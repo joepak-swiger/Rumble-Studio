@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageSequence
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets" / "fighters"
 ROSTER_FILE = ROOT / "roster.json"
+ENTRANCE_PROFILE_FILE = ROOT / "entrance_profiles.json"
 
 W, H = 540, 960
 FPS = 30
@@ -81,6 +82,48 @@ def parse_color(value, fallback=(255, 210, 80)) -> Tuple[int, int, int]:
             except ValueError:
                 pass
     return fallback
+
+
+def load_entrance_profiles() -> dict:
+    builtins = {
+        "default": "Flash",
+        "rules": [
+            {"franchise": "Digimon", "stage": "", "style": "Digital Beam"},
+            {"franchise": "Pokemon", "stage": "", "style": "Flash"},
+            {"franchise": "Dragon Ball", "stage": "", "style": "Aura"},
+            {"franchise": "Kingdom Hearts", "stage": "", "style": "Portal"},
+        ],
+    }
+    try:
+        data = json.loads(ENTRANCE_PROFILE_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("rules", []), list):
+            data.setdefault("default", "Flash")
+            return data
+    except Exception:
+        pass
+    return builtins
+
+
+def resolve_entrance_style(pack: "FighterPack", profiles: dict, global_style: str) -> str:
+    if global_style and global_style != "Auto / Profile":
+        return global_style
+    stage = str(pack.meta.get("stage", "") or pack.meta.get("source", {}).get("stage", "") or "").strip().lower()
+    franchise = str(pack.franchise or "").strip().lower()
+    rules = [x for x in profiles.get("rules", []) if isinstance(x, dict)]
+    best = None
+    best_score = -1
+    for rule in rules:
+        rf = str(rule.get("franchise", "") or "").strip().lower()
+        rs = str(rule.get("stage", "") or "").strip().lower()
+        if rf and rf != franchise:
+            continue
+        if rs and rs != stage:
+            continue
+        score = (2 if rf else 0) + (1 if rs else 0)
+        if score > best_score:
+            best = str(rule.get("style", "Flash") or "Flash")
+            best_score = score
+    return best or str(profiles.get("default", "Flash") or "Flash")
 
 
 class SpriteAnim:
@@ -221,6 +264,7 @@ class FighterPack:
     def anim(self, requested: str) -> SpriteAnim:
         # Missing states are deliberately allowed so a custom fighter can start with only one image.
         fallbacks = {
+            "entrance": ("entrance", "idle", "cheer", "jump"),
             "walk": ("walk", "run", "idle"),
             "run": ("run", "walk", "idle"),
             "hit": ("hit", "idle", "walk"),
@@ -279,6 +323,9 @@ class Fighter:
     strafe_sign: int = 1
     transform_lock_t: float = 0.0
     transform_count: int = 0
+    spawn_index: int = 0
+    spawn_time: float = 0.0
+    entrance_style: str = "Flash"
 
     @property
     def name(self) -> str:
@@ -370,16 +417,30 @@ class Rumble:
 
         studio = roster.get("studio", {})
         self.title = studio.get("title", "RUMBLE STUDIO")
-        self.subtitle = studio.get("subtitle", "Combat Engine Test")
+        self.subtitle = studio.get("subtitle", "Battle Opening")
 
-        for entry in roster["fighters"]:
+        opening = roster.get("opening", {}) if isinstance(roster.get("opening", {}), dict) else {}
+        self.opening_enabled = bool(opening.get("enabled", True))
+        self.opening_effect = str(opening.get("entrance_effect", "Auto / Profile"))
+        self.entrance_delay = clamp(float(opening.get("entrance_delay", 0.18)), 0.05, 1.0)
+        self.show_who_will_win = bool(opening.get("who_will_win", True))
+        self.choose_hold = clamp(float(opening.get("choose_hold", 2.5)), 0.0, 10.0)
+        self.show_countdown = bool(opening.get("countdown", True))
+        self.formation = str(opening.get("formation", "Auto"))
+        self.entrance_profiles = load_entrance_profiles()
+        self.intro_blank = 0.28 if self.opening_enabled else 0.0
+        self.entrance_effect_life = 0.72
+
+        entries = list(roster["fighters"])
+        positions = self._formation_positions(len(entries))
+        for idx, entry in enumerate(entries):
             pack = FighterPack(ASSETS / entry["pack"])
             stats = dict(pack.stats)
             stats.update(entry.get("stats", {}))
             hp = float(stats.get("hp", 100))
-            x = self.rng.uniform(60, W - 60)
-            y = self.rng.uniform(ARENA_TOP + 70, ARENA_BOTTOM - 70)
+            x, y = positions[idx]
             native = -1 if pack.native_facing == "left" else 1
+            spawn_time = self.intro_blank + idx * self.entrance_delay if self.opening_enabled else 0.0
             self.fighters.append(
                 Fighter(
                     pack=pack,
@@ -393,11 +454,59 @@ class Rumble:
                     facing=native,
                     decision_t=self.rng.uniform(0.15, 0.75),
                     strafe_sign=-1 if self.rng.random() < 0.5 else 1,
+                    spawn_index=idx,
+                    spawn_time=spawn_time,
+                    entrance_style=resolve_entrance_style(pack, self.entrance_profiles, self.opening_effect),
                 )
             )
 
+        if self.opening_enabled and self.fighters:
+            self.last_spawn_t = self.fighters[-1].spawn_time
+            self.choose_start_t = self.last_spawn_t + self.entrance_effect_life
+            self.choose_end_t = self.choose_start_t + (self.choose_hold if self.show_who_will_win else 0.0)
+            self.countdown_start_t = self.choose_end_t
+            self.countdown_duration = 2.10 if self.show_countdown else 0.0
+            self.rumble_start_t = self.countdown_start_t + self.countdown_duration
+            self.battle_start_t = self.rumble_start_t + 0.72
+        else:
+            self.last_spawn_t = self.choose_start_t = self.choose_end_t = 0.0
+            self.countdown_start_t = self.countdown_duration = self.rumble_start_t = self.battle_start_t = 0.0
+
         self.winner: Optional[int] = None
         self.finished_t: Optional[float] = None
+
+    def _formation_positions(self, n: int) -> List[Tuple[float, float]]:
+        if n <= 0:
+            return []
+        style = self.formation
+        if style == "Auto":
+            style = "Circle" if n <= 12 else "Two Rings"
+        if style == "Random":
+            return [
+                (self.rng.uniform(60, W - 60), self.rng.uniform(ARENA_TOP + 85, ARENA_BOTTOM - 85))
+                for _ in range(n)
+            ]
+
+        cx = W / 2
+        cy = (ARENA_TOP + ARENA_BOTTOM) / 2 + 18
+
+        def ring(count: int, rx: float, ry: float, offset: float = 0.0):
+            pts = []
+            for j in range(count):
+                angle = -math.pi / 2 + offset + (2 * math.pi * j / max(1, count))
+                pts.append((cx + math.cos(angle) * rx, cy + math.sin(angle) * ry))
+            return pts
+
+        if style == "Circle" or n <= 12:
+            return ring(n, 176 if n > 2 else 135, 255 if n > 2 else 210)
+
+        outer_n = max(8, int(math.ceil(n * 0.60)))
+        outer_n = min(outer_n, n)
+        inner_n = n - outer_n
+        pts = ring(outer_n, 188, 270)
+        if inner_n:
+            pts += ring(inner_n, 110, 158, math.pi / max(4, inner_n))
+        return pts
 
     def living(self) -> List[int]:
         return [i for i, f in enumerate(self.fighters) if f.alive]
@@ -744,6 +853,18 @@ class Rumble:
 
     def update(self, dt: float):
         self.t += dt
+
+        if self.opening_enabled and self.t < self.battle_start_t:
+            # Entrance/choose/countdown phases are presentation-only: everyone is frozen
+            # in the fair starting formation until RUMBLE! releases the AI.
+            for f in self.fighters:
+                if self.t < f.spawn_time:
+                    continue
+                f.anim_t += dt
+                age = self.t - f.spawn_time
+                f.anim_name = "entrance" if age < self.entrance_effect_life else "idle"
+            return
+
         self.update_projectiles(dt)
         self.update_effects(dt)
         # KO sprites get a brief readable defeat beat, then leave the battlefield.
@@ -925,6 +1046,8 @@ class Rumble:
             d.line((b.x1, b.y1, b.x2, b.y2), fill=(250, 250, 250), width=max(1, width // 3))
 
     def draw_fighter(self, img: Image.Image, f: Fighter):
+        if self.opening_enabled and self.t < f.spawn_time:
+            return
         if not f.alive and f.ko_t >= KO_VISIBLE_SECONDS:
             return
         anim = f.pack.anim(f.anim_name)
@@ -1017,6 +1140,71 @@ class Rumble:
             c = (255, int(220 * strength + 25), 70)
             d.text((W // 2, ARENA_TOP + 30), "FINAL HIT!", font=FONT_TITLE, anchor="ma", fill=c)
 
+    def draw_entrance_effects(self, img: Image.Image):
+        if not self.opening_enabled or self.t >= self.choose_start_t:
+            return
+        d = ImageDraw.Draw(img)
+        for f in self.fighters:
+            age = self.t - f.spawn_time
+            if age < 0 or age > self.entrance_effect_life:
+                continue
+            p = clamp(age / self.entrance_effect_life, 0.0, 1.0)
+            x, y = int(f.x), int(f.y)
+            style = f.entrance_style
+            if style == "None":
+                continue
+            if style == "Digital Beam":
+                fade = 1.0 - p
+                c = (90, 220, 255)
+                width = max(2, int(18 * fade))
+                d.line((x, ARENA_TOP + 12, x, y + 10), fill=c, width=width)
+                d.line((x, ARENA_TOP + 12, x, y + 10), fill=(235, 255, 255), width=max(1, width // 4))
+                for k in range(7):
+                    yy = y - 120 + ((k * 37 + f.spawn_index * 19 + int(age * 180)) % 145)
+                    xx = x + ((k * 23 + f.spawn_index * 11) % 34) - 17
+                    r = 2 + (k % 3)
+                    d.rectangle((xx-r, yy-r, xx+r, yy+r), fill=c)
+            elif style == "Aura":
+                c = (255, 226, 80)
+                r = int(28 + 42 * p)
+                d.ellipse((x-r, y-70-r//2, x+r, y-70+r//2), outline=c, width=max(1, int(5*(1-p)+1)))
+                d.line((x-18, y-110, x-4, y-150), fill=c, width=3)
+                d.line((x+16, y-105, x+30, y-145), fill=c, width=3)
+            elif style == "Portal":
+                c = (130, 105, 255)
+                r = int(18 + 58 * p)
+                d.ellipse((x-r, y-68-r, x+r, y-68+r), outline=c, width=max(2, int(7*(1-p)+2)))
+                d.ellipse((x-r//2, y-68-r//2, x+r//2, y-68+r//2), outline=(220, 205, 255), width=2)
+            elif style == "Teleport":
+                c = (210, 235, 255)
+                for k in range(6):
+                    dx = (k - 3) * 8
+                    d.line((x+dx, y-145+int(70*p), x+dx, y-25), fill=c, width=2)
+            else:  # Flash
+                c = (245, 250, 255)
+                r = int(12 + 55 * p)
+                d.ellipse((x-r, y-70-r, x+r, y-70+r), outline=c, width=max(1, int(6*(1-p)+1)))
+                d.line((x-r-8, y-70, x+r+8, y-70), fill=c, width=2)
+                d.line((x, y-70-r-8, x, y-70+r+8), fill=c, width=2)
+
+    def draw_intro_overlay(self, img: Image.Image):
+        if not self.opening_enabled or self.t >= self.battle_start_t:
+            return
+        d = ImageDraw.Draw(img)
+        if self.show_who_will_win and self.choose_start_t <= self.t < self.choose_end_t:
+            d.rounded_rectangle((72, 392, W-72, 520), 22, fill=(10, 14, 22), outline=(245, 210, 70), width=3)
+            d.text((W//2, 425), "WHO WILL WIN?", font=FONT_WIN, anchor="ma", fill=(255, 235, 110))
+            d.text((W//2, 478), "CHOOSE YOUR FIGHTER", font=FONT_NAME, anchor="ma", fill=(245, 245, 245))
+            return
+        if self.show_countdown and self.countdown_start_t <= self.t < self.rumble_start_t:
+            elapsed = self.t - self.countdown_start_t
+            step = int(elapsed / 0.70)
+            number = max(1, 3 - step)
+            d.text((W//2, 465), str(number), font=load_font(86), anchor="mm", fill=(255, 238, 105), stroke_width=4, stroke_fill=(20, 24, 32))
+            return
+        if self.rumble_start_t <= self.t < self.battle_start_t:
+            d.text((W//2, 465), "RUMBLE!", font=load_font(58), anchor="mm", fill=(255, 225, 75), stroke_width=4, stroke_fill=(20, 24, 32))
+
     def draw_victory_finish(self, img: Image.Image):
         if self.winner is None or self.finished_t is None:
             return
@@ -1076,6 +1264,7 @@ class Rumble:
     def draw(self) -> Image.Image:
         img = Image.new("RGB", (W, H), (24, 30, 38))
         self.draw_arena(img)
+        self.draw_entrance_effects(img)
 
         # Effects that should sit behind sprites.
         self.draw_beams(img)
@@ -1085,6 +1274,7 @@ class Rumble:
             self.draw_fighter(img, self.fighters[i])
 
         self.draw_impacts_and_damage(img)
+        self.draw_intro_overlay(img)
         self.draw_victory_finish(img)
         return img
 
@@ -1109,9 +1299,8 @@ def run_render(seed: int, output: Path, max_seconds: float = 55.0):
     writer.send(None)
     dt = 1 / FPS
     frames = 0
-    for _ in range(FPS):
-        writer.send(np.asarray(sim.draw(), dtype=np.uint8))
-        frames += 1
+    writer.send(np.asarray(sim.draw(), dtype=np.uint8))
+    frames += 1
     while sim.t < max_seconds:
         sim.update(dt)
         writer.send(np.asarray(sim.draw(), dtype=np.uint8))
@@ -1131,7 +1320,7 @@ def run_preview(seed: int):
 
     sim = Rumble(seed, load_roster())
     root = tk.Tk()
-    root.title(f"Rumble Studio v0.13 Preview - seed {seed}")
+    root.title(f"Rumble Studio v0.15 Preview - seed {seed}")
     label = tk.Label(root)
     label.pack()
     last = time.perf_counter()
@@ -1153,7 +1342,7 @@ def run_preview(seed: int):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Rumble Studio v0.13")
+    ap = argparse.ArgumentParser(description="Rumble Studio v0.15")
     ap.add_argument("--mode", choices=["preview", "render"], default="preview")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--output", default="")

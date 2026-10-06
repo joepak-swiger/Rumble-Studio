@@ -54,3 +54,6 @@ Desktop.ini
 # Local Rumble Studio session state
 roster.json
 MUGEN_BATCH_IMPORT_REPORT.txt
+
+# Local entrance profile preferences
+entrance_profiles.json
