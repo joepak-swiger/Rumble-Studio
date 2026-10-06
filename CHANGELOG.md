@@ -1,6 +1,7 @@
 # Rumble Studio Changelog
 
 ## v0.15
+- Transformation Rule targets are now reliably restricted to the source fighter's franchise using the source pack directly.
 
 ### Battle Opening & Spawn Director
 
@@ -13,6 +14,10 @@
 - Added Entrance Studio for shared entrance effects by franchise and/or Stage/Form.
 - Digimon defaults to Digital Beam, Pokemon to Flash, Dragon Ball to Aura, and Kingdom Hearts to Portal unless overridden.
 - Battle Roster now has opening controls for effect, delay, hold time, countdown, and formation.
+- WHO WILL WIN? now sizes itself inside the empty center of the spawn formation so it does not cover the 3/9 o'clock fighters.
+- Added MUGEN Smart Scan: parses real `[Command]` inputs and traces them through State -1 / StateDef to playable AIR animations.
+- Move Lab now defaults to Recommended, with separate Inputs/attacks, Standard actions, and All rendered views.
+- Move Lab shows semantic MUGEN inputs such as X, QCF + X, Dash F, and charge motions instead of forcing you to dig through hundreds of helper animations.
 
 
 ## v0.14

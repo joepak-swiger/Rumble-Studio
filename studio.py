@@ -409,32 +409,94 @@ class TransformationDialog(tk.Toplevel):
         self.grab_set()
         rule = dict(rule or {})
 
-        packs = [p for p in list_fighter_packs() if p != current_pack]
-        self.target_var = tk.StringVar(value=str(rule.get("target_pack", packs[0] if packs else "")))
+        # v0.15 hotfix: keep transformation targets inside the source fighter's
+        # franchise. Transformation Lab already passes current_pack, so no UI
+        # guessing is necessary.
+        source_info = fighter_summary(current_pack) if current_pack else {}
+        source_franchise = str(source_info.get("franchise", "") or "").strip()
+
+        packs = []
+        for pack in list_fighter_packs():
+            if pack == current_pack:
+                continue
+            info = fighter_summary(pack)
+            target_franchise = str(info.get("franchise", "") or "").strip()
+            if source_franchise and target_franchise.lower() != source_franchise.lower():
+                continue
+            packs.append(pack)
+
+        packs = sorted(packs, key=str.lower)
+
+        # Stay strict: if this franchise has no other fighters yet, the list
+        # remains empty instead of leaking in unrelated franchises.
+
+        existing_target = str(rule.get("target_pack", "") or "").strip()
+        default_target = existing_target if existing_target in packs else (packs[0] if packs else "")
+
+        self.target_var = tk.StringVar(value=default_target)
         self.chance_var = tk.StringVar(value=str(rule.get("chance", 35)))
         self.heal_var = tk.StringVar(value=str(rule.get("heal_percent", 0)))
         self.label_var = tk.StringVar(value=str(rule.get("label", "TRANSFORM!")))
 
         body = ttk.Frame(self, padding=14)
         body.grid(sticky="nsew")
+
         ttk.Label(body, text="Transform into").grid(row=0, column=0, sticky="w", pady=4)
-        self.target_combo = ttk.Combobox(body, textvariable=self.target_var, values=packs, state="readonly", width=34)
+        self.target_combo = ttk.Combobox(
+            body,
+            textvariable=self.target_var,
+            values=packs,
+            state="readonly",
+            width=34,
+        )
         self.target_combo.grid(row=0, column=1, sticky="ew", pady=4)
-        ttk.Label(body, text="Chance after each KO (%)").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(body, textvariable=self.chance_var, width=12).grid(row=1, column=1, sticky="w", pady=4)
-        ttk.Label(body, text="Heal on transform (% max HP)").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(body, textvariable=self.heal_var, width=12).grid(row=2, column=1, sticky="w", pady=4)
-        ttk.Label(body, text="Announcement").grid(row=3, column=0, sticky="w", pady=4)
-        ttk.Entry(body, textvariable=self.label_var, width=28).grid(row=3, column=1, sticky="ew", pady=4)
+
+        row_offset = 0
+        if source_franchise:
+            ttk.Label(
+                body,
+                text=f"Franchise locked to: {source_franchise}",
+                foreground="#666",
+            ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 5))
+            row_offset = 1
+
+        ttk.Label(body, text="Chance after each KO (%)").grid(
+            row=1 + row_offset, column=0, sticky="w", pady=4
+        )
+        ttk.Entry(body, textvariable=self.chance_var, width=12).grid(
+            row=1 + row_offset, column=1, sticky="w", pady=4
+        )
+        ttk.Label(body, text="Heal on transform (% max HP)").grid(
+            row=2 + row_offset, column=0, sticky="w", pady=4
+        )
+        ttk.Entry(body, textvariable=self.heal_var, width=12).grid(
+            row=2 + row_offset, column=1, sticky="w", pady=4
+        )
+        ttk.Label(body, text="Announcement").grid(
+            row=3 + row_offset, column=0, sticky="w", pady=4
+        )
+        ttk.Entry(body, textvariable=self.label_var, width=28).grid(
+            row=3 + row_offset, column=1, sticky="ew", pady=4
+        )
         ttk.Label(
             body,
-            text="HP percentage carries into the new form. Heal % is added after that.\nMultiple rules create branching forms.",
+            text="HP percentage carries into the new form. Heal % is added after that.\n"
+                 "Multiple rules create branching forms.",
             foreground="#666",
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(7,8))
+        ).grid(
+            row=4 + row_offset,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(7, 8),
+        )
+
         btns = ttk.Frame(body)
-        btns.grid(row=5, column=0, columnspan=2, sticky="e")
+        btns.grid(row=5 + row_offset, column=0, columnspan=2, sticky="e")
         ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
-        ttk.Button(btns, text="Save Rule", command=self._save).pack(side="right", padx=(0,6))
+        ttk.Button(btns, text="Save Rule", command=self._save).pack(
+            side="right", padx=(0, 6)
+        )
 
     def _save(self):
         try:
@@ -480,6 +542,7 @@ class StudioApp:
         # assign it directly to an attack slot, and optionally lock that mapping.
         self.move_search_var = tk.StringVar()
         self.move_type_var = tk.StringVar(value="All types")
+        self.move_view_var = tk.StringVar(value="Recommended")
         self.move_status_var = tk.StringVar(value="Choose a MUGEN fighter to browse its moves.")
         self.move_mapping_var = tk.StringVar(value="No MUGEN fighter selected.")
         self.move_lock_on_assign_var = tk.BooleanVar(value=True)
@@ -722,7 +785,7 @@ class StudioApp:
         ttk.Checkbutton(bottom, text="Add/update this fighter in the current battle roster", variable=self.add_roster_var).pack(side="left")
         ttk.Button(bottom, text="DELETE FIGHTER", command=self.delete_current_fighter).pack(side="right", padx=(6,0), ipadx=6, ipady=4)
         ttk.Button(bottom, text="RESET TO SAVED", command=self.reset_current_fighter).pack(side="right", padx=(6,0), ipadx=6, ipady=4)
-        ttk.Button(bottom, text="↻ RESCAN UNLOCKED MUGEN", command=self.rescan_mugen_current).pack(side="right", padx=(6,0), ipadx=6, ipady=4)
+        ttk.Button(bottom, text="★ SMART RESCAN UNLOCKED MUGEN", command=self.rescan_mugen_current).pack(side="right", padx=(6,0), ipadx=6, ipady=4)
         ttk.Button(bottom, text="SAVE FIGHTER", command=self.save_fighter).pack(side="right", ipadx=16, ipady=4)
 
     def _build_transform_tab(self):
@@ -864,7 +927,7 @@ class StudioApp:
         title.columnconfigure(1, weight=1)
         ttk.Label(
             title,
-            text="Browse every exported AIR animation, preview it, and map it to movement, reactions, victory states, or attacks.",
+            text="Smart Scan shows real MUGEN inputs and recommended standard/playable actions first. Switch to All rendered when you need every helper/transition animation.",
             font=("Segoe UI", 10, "bold"),
         ).grid(row=0, column=0, columnspan=4, sticky="w")
         ttk.Label(title, textvariable=self.move_mapping_var, foreground="#555").grid(
@@ -878,33 +941,47 @@ class StudioApp:
         move_search = ttk.Entry(filters, textvariable=self.move_search_var)
         move_search.grid(row=0, column=1, sticky="ew", padx=(6, 10))
         move_search.bind("<KeyRelease>", lambda e: self.refresh_move_lab())
-        ttk.Label(filters, text="Type").grid(row=0, column=2)
+
+        ttk.Label(filters, text="Show").grid(row=0, column=2)
+        move_view = ttk.Combobox(
+            filters, textvariable=self.move_view_var,
+            values=["Recommended", "Inputs / attacks", "Standard actions", "All rendered"],
+            state="readonly", width=17,
+        )
+        move_view.grid(row=0, column=3, padx=(6, 10))
+        move_view.bind("<<ComboboxSelected>>", lambda e: self.refresh_move_lab())
+
+        ttk.Label(filters, text="Type").grid(row=0, column=4)
         move_type = ttk.Combobox(
             filters, textvariable=self.move_type_var,
             values=["All types", "melee", "projectile", "beam"],
-            state="readonly", width=12,
+            state="readonly", width=11,
         )
-        move_type.grid(row=0, column=3, padx=(6, 10))
+        move_type.grid(row=0, column=5, padx=(6, 10))
         move_type.bind("<<ComboboxSelected>>", lambda e: self.refresh_move_lab())
-        ttk.Button(filters, text="Refresh List", command=self.refresh_move_lab).grid(row=0, column=4)
-        ttk.Button(filters, text="↻ RESCAN UNLOCKED MUGEN", command=self.rescan_mugen_current).grid(
-            row=0, column=5, padx=(8, 0)
+        ttk.Button(filters, text="Refresh", command=self.refresh_move_lab).grid(row=0, column=6)
+        ttk.Button(filters, text="★ SMART RESCAN UNLOCKED", command=self.rescan_mugen_current).grid(
+            row=0, column=7, padx=(8, 0)
         )
 
-        list_box = ttk.LabelFrame(self.move_lab_tab, text="Detected / Rendered MUGEN Animations", padding=8)
+        list_box = ttk.LabelFrame(self.move_lab_tab, text="MUGEN Animation / Input Scanner", padding=8)
         list_box.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         list_box.columnconfigure(0, weight=1)
         list_box.rowconfigure(0, weight=1)
-        cols = ("action", "name", "type", "score", "state", "source")
+        cols = ("action", "name", "category", "input", "type", "score", "state", "source")
         self.move_tree = ttk.Treeview(list_box, columns=cols, show="headings", height=22)
         headings = {
-            "action": "AIR", "name": "Move / Action", "type": "Type",
-            "score": "Score", "state": "State", "source": "Detected From",
+            "action": "AIR", "name": "Move / Animation", "category": "Kind",
+            "input": "MUGEN Input", "type": "Rumble Type", "score": "Score",
+            "state": "State", "source": "Detected From",
         }
-        widths = {"action": 60, "name": 210, "type": 82, "score": 55, "state": 65, "source": 120}
+        widths = {
+            "action": 55, "name": 185, "category": 72, "input": 125,
+            "type": 78, "score": 48, "state": 55, "source": 115,
+        }
         for c in cols:
             self.move_tree.heading(c, text=headings[c])
-            self.move_tree.column(c, width=widths[c], anchor="w" if c in ("name", "source") else "center")
+            self.move_tree.column(c, width=widths[c], anchor="w" if c in ("name", "input", "source") else "center")
         self.move_tree.grid(row=0, column=0, sticky="nsew")
         move_sb = ttk.Scrollbar(list_box, orient="vertical", command=self.move_tree.yview)
         move_sb.grid(row=0, column=1, sticky="ns")
@@ -1215,10 +1292,10 @@ class StudioApp:
             "MUGEN MOVE LAB\n"
             "Choose a MUGEN fighter and open MUGEN Move Lab. Search or filter every exported AIR action, double-click/Preview to watch one, "
             "then either map it to ANY fighter animation slot (Idle, Walk, Run, Hit, Guard, KO, Jump, Happy, Cheer, Victory, etc.) or use the Attack 1-4 buttons to also create/update combat move data. Lock-on-assign keeps deliberate choices through future rescans. "
-            "Older v0.13 imports can still browse generic Action numbers; run ↻ RESCAN UNLOCKED MUGEN once to build the richer v0.14 move index with names, types, StateDefs and detection scores.\n\n"
+            "Older v0.13 imports can still browse generic Action numbers; run ★ SMART RESCAN UNLOCKED MUGEN once to build the richer v0.14 move index with names, types, StateDefs and detection scores.\n\n"
             "FIGHTER MAINTENANCE\n"
             "RESET TO SAVED discards unsaved edits and reloads the last fighter.json. DELETE FIGHTER permanently removes the fighter, removes it from the roster, and cleans transformation links that point to it. "
-            "For MUGEN fighters, use the Lock checkboxes beside animation mappings and Lock / Unlock on attack rows to protect mappings you like. ↻ RESCAN UNLOCKED MUGEN rereads DEF/AIR/CMD/CNS files but only replaces unlocked mappings; locked paths/attacks stay fixed.\n\n"
+            "For MUGEN fighters, use the Lock checkboxes beside animation mappings and Lock / Unlock on attack rows to protect mappings you like. ★ SMART RESCAN UNLOCKED MUGEN rereads DEF/AIR/CMD/CNS files but only replaces unlocked mappings; locked paths/attacks stay fixed.\n\n"
             "DIGIMON WORLD CHAMPIONSHIP IMPORT\n"
             "Click 🦖 IMPORT DWC SPRITE SET. Choose ANY one 0-39 GIF for one Digimon, or the full ZIP for bulk import. "
             "The imported evolution stage is automatically written into Stage/Form for filtering.\n\n"
@@ -1948,6 +2025,31 @@ class StudioApp:
                 })
         return fallback
 
+    def _move_lab_view_meta(self, move: dict):
+        try:
+            action = int(move.get("action", -999999))
+        except Exception:
+            action = -999999
+        category = str(move.get("category", "") or "").lower()
+        if not category:
+            if action in {0,20,21,40,41,42,43,47,100,105,120,130,150,170,180,190,195,5000,5010,5020,5030,5070,5110,5140,5150} or 181 <= action <= 189:
+                category = "standard"
+            elif 3000 <= action < 5000:
+                category = "super"
+            elif 1000 <= action < 3000:
+                category = "special"
+            elif 200 <= action < 1000:
+                category = "normal"
+            elif 5000 <= action < 6000:
+                category = "hit/ko"
+            else:
+                category = "misc"
+        input_text = str(move.get("input_display") or move.get("input") or "")
+        recommended = move.get("recommended")
+        if recommended is None:
+            recommended = bool(input_text) or category == "standard" or int(move.get("score", 0) or 0) >= 120
+        return category, input_text, bool(recommended)
+
     def refresh_move_lab(self):
         if not hasattr(self, "move_tree"):
             return
@@ -1970,23 +2072,38 @@ class StudioApp:
         moves = self._move_lab_index()
         search = self.move_search_var.get().strip().lower()
         type_filter = self.move_type_var.get().strip().lower()
+        view_filter = self.move_view_var.get().strip().lower()
         shown = 0
+        recommended_total = 0
         for move in moves:
+            category, input_text, recommended = self._move_lab_view_meta(move)
+            if recommended:
+                recommended_total += 1
             kind = str(move.get("type", "melee")).lower()
             blob = " ".join([
                 str(move.get("action", "")), str(move.get("name", "")),
                 str(move.get("source", "")), str(move.get("comment", "")),
-                str(move.get("state", "")),
+                str(move.get("state", "")), category, input_text,
+                str(move.get("command_name", "")),
             ]).lower()
             if search and search not in blob:
                 continue
             if type_filter not in ("", "all types") and kind != type_filter:
                 continue
+            if view_filter == "recommended" and not recommended:
+                continue
+            if view_filter == "inputs / attacks" and not input_text:
+                continue
+            if view_filter == "standard actions" and category != "standard":
+                continue
+
             iid = f"move_{shown}"
             self.move_items[iid] = move
             self.move_tree.insert("", "end", iid=iid, values=(
                 move.get("action", ""),
                 move.get("name", f"Action {move.get('action', '?')}"),
+                category,
+                input_text,
                 kind,
                 move.get("score", 0),
                 "" if move.get("state") is None else move.get("state"),
@@ -2000,8 +2117,12 @@ class StudioApp:
             attack = next((a for a in self.attack_data if str(a.get("animation", "")) == slot), None)
             action = attack.get("mugen_action") if attack else None
             lock = " 🔒" if slot in self.attack_lock_slots else ""
-            mapped.append(f"A{i}: {attack.get('name', '—') if attack else '—'}"
-                          + (f" [AIR {action}]" if action is not None else "") + lock)
+            inp = str(attack.get("mugen_input_display", "") or "") if attack else ""
+            mapped.append(
+                f"A{i}: {attack.get('name', '—') if attack else '—'}"
+                + (f" [{inp}]" if inp else f" [AIR {action}]" if action is not None else "")
+                + lock
+            )
         self.move_mapping_var.set("   |   ".join(mapped))
 
         has_rich_index = (self.current_folder / "MUGEN_MOVE_INDEX.json").exists()
@@ -2009,10 +2130,13 @@ class StudioApp:
             self.move_status_var.set("No rendered MUGEN AIR actions were found for this fighter.")
         elif not has_rich_index:
             self.move_status_var.set(
-                f"Showing {shown} rendered AIR actions. Run RESCAN UNLOCKED MUGEN once to build rich move names/types."
+                f"Showing {shown} rendered actions. Run SMART RESCAN once to build command/input metadata."
             )
         else:
-            self.move_status_var.set(f"Showing {shown} of {len(moves)} indexed MUGEN actions.")
+            self.move_status_var.set(
+                f"Showing {shown} of {len(moves)} actions • {recommended_total} recommended. "
+                "Recommended hides helper/transition clutter; All rendered is still available."
+            )
 
     def _selected_move_lab_move(self) -> Optional[dict]:
         if not hasattr(self, "move_tree"):
@@ -2027,9 +2151,11 @@ class StudioApp:
         move = self._selected_move_lab_move_silent()
         if not move:
             return
+        category, input_text, recommended = self._move_lab_view_meta(move)
+        input_part = f" • input {input_text}" if input_text else ""
         self.move_status_var.set(
-            f"Selected AIR {move.get('action')}: {move.get('name', 'Move')} • "
-            f"{move.get('type', 'melee')} • detected from {move.get('source', 'AIR')}"
+            f"Selected AIR {move.get('action')}: {move.get('name', 'Move')} • {category} • "
+            f"{move.get('type', 'melee')}{input_part} • detected from {move.get('source', 'AIR')}"
         )
 
     def _selected_move_lab_move_silent(self) -> Optional[dict]:
@@ -2128,6 +2254,9 @@ class StudioApp:
             "mugen_action": action,
             "mugen_state": move.get("state"),
             "mugen_detection": move.get("source", "Move Lab"),
+            "mugen_command": move.get("command_name", ""),
+            "mugen_input": move.get("input", ""),
+            "mugen_input_display": move.get("input_display", ""),
         })
         return attack
 

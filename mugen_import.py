@@ -957,6 +957,7 @@ def auto_map_actions(actions: Dict[int, AirAction]) -> Tuple[Dict[str, int], Lis
     mapping: Dict[str, int] = {}
     slot_candidates = {
         "idle": [0],
+        "entrance": [190, 191, 192, 193, 194, 195, 0],
         "walk": [20, 21],
         "run": [100, 20],
         "jump": [41, 42, 43, 44, 45, 46, 40],
@@ -1014,6 +1015,156 @@ MOVE_KEYWORDS = {
     "projectile": ("blast", "shot", "fireball", "projectile", "missile", "bullet", "arrow", "ki ", "energy ball", "orb"),
     "melee": ("punch", "kick", "slash", "uppercut", "combo", "rush", "tackle", "throw", "strike", "smash", "claw", "sword"),
 }
+
+MUGEN_STANDARD_ACTIONS = {
+    0:   {"name": "Standing / Idle", "slot_hint": "idle"},
+    20:  {"name": "Walk Forward", "slot_hint": "walk"},
+    21:  {"name": "Walk Backward", "slot_hint": "walk"},
+    40:  {"name": "Jump Start", "slot_hint": "jump"},
+    41:  {"name": "Jump Neutral Up", "slot_hint": "jump"},
+    42:  {"name": "Jump Forward Up", "slot_hint": "jump"},
+    43:  {"name": "Jump Back Up", "slot_hint": "jump"},
+    47:  {"name": "Jump Landing", "slot_hint": "jump"},
+    100: {"name": "Run Forward", "slot_hint": "run"},
+    105: {"name": "Run / Hop Back", "slot_hint": "run"},
+    120: {"name": "Guard Start", "slot_hint": "guard"},
+    130: {"name": "Guard Standing", "slot_hint": "guard"},
+    150: {"name": "Guard Hit", "slot_hint": "guard"},
+    170: {"name": "Lose", "slot_hint": "ko"},
+    180: {"name": "Win", "slot_hint": "victory"},
+    190: {"name": "Intro", "slot_hint": "entrance"},
+    195: {"name": "Taunt", "slot_hint": "cheer"},
+    5000:{"name": "Hit High", "slot_hint": "hit"},
+    5010:{"name": "Hit Low", "slot_hint": "hit"},
+    5020:{"name": "Crouch Hit", "slot_hint": "hit"},
+    5030:{"name": "Hit Back", "slot_hint": "hit"},
+    5070:{"name": "Tripped", "slot_hint": "hit"},
+    5110:{"name": "Lie Down", "slot_hint": "ko"},
+    5140:{"name": "Lie Dead", "slot_hint": "ko"},
+    5150:{"name": "Lie Dead Final", "slot_hint": "ko"},
+}
+
+
+def _standard_action_info(action_no: int) -> dict:
+    if action_no in MUGEN_STANDARD_ACTIONS:
+        return dict(MUGEN_STANDARD_ACTIONS[action_no])
+    if 181 <= action_no <= 189:
+        return {"name": f"Win {action_no-179}", "slot_hint": "victory"}
+    return {}
+
+
+def _parse_mugen_command_definitions(info: MugenCharacterInfo) -> Dict[str, str]:
+    """Read semantic MUGEN inputs from [Command] blocks.
+
+    MUGEN character files use F/B/U/D and a,b,c,x,y,z,s rather than physical
+    WASD/arrow-key names, which is ideal for Rumble because those inputs are
+    portable across every player's keyboard/controller configuration.
+    """
+    if not info.cmd_file or not info.cmd_file.exists():
+        return {}
+    try:
+        text = _decode_text(info.cmd_file)
+    except Exception:
+        return {}
+    section_re = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+    blocks = []
+    header = None
+    body = []
+    for raw in text.splitlines() + ["[__END__]"]:
+        m = section_re.match(raw)
+        if m:
+            if header is not None:
+                blocks.append((header, body))
+            header = m.group(1).strip()
+            body = []
+        else:
+            body.append(raw)
+    out: Dict[str, str] = {}
+    for header, lines in blocks:
+        if header.lower() != "command":
+            continue
+        values = {}
+        for raw in lines:
+            line = raw.split(";", 1)[0].strip()
+            if not line or "=" not in line:
+                continue
+            k, v = [x.strip() for x in line.split("=", 1)]
+            values[k.lower()] = _strip_quotes(v)
+        name = values.get("name", "").strip()
+        command = values.get("command", "").strip()
+        if name and command and name not in out:
+            out[name] = command
+    return out
+
+
+def _humanize_mugen_input(raw: str) -> str:
+    if not raw:
+        return ""
+    original = raw.strip()
+    compact = re.sub(r"\s+", "", original)
+    parts = [p for p in compact.split(",") if p]
+    if not parts:
+        return original
+
+    charge = None
+    cleaned = []
+    for p in parts:
+        m = re.match(r"~(\d+)\$?([BDFU]+)$", p, re.I)
+        if m:
+            charge = (m.group(1), m.group(2).upper())
+            cleaned.append(m.group(2).upper())
+            continue
+        q = re.sub(r"^[~/><]+", "", p)
+        q = re.sub(r"^\d+", "", q)
+        q = q.replace("$", "")
+        cleaned.append(q.upper())
+
+    button_tokens = {"A", "B", "C", "X", "Y", "Z", "S"}
+    buttons = []
+    dirs = []
+    for token in cleaned:
+        bits = token.split("+")
+        if all(bit in button_tokens for bit in bits):
+            buttons.append("+".join(bits))
+        else:
+            dirs.append(token)
+
+    seq = tuple(dirs)
+    motion_map = {
+        ("D", "DF", "F"): "QCF",
+        ("D", "DB", "B"): "QCB",
+        ("F", "D", "DF"): "DP",
+        ("B", "D", "DB"): "RDP",
+        ("F", "DF", "D", "DB", "B"): "HCB",
+        ("B", "DB", "D", "DF", "F"): "HCF",
+        ("D", "DF", "F", "D", "DF", "F"): "2×QCF",
+        ("D", "DB", "B", "D", "DB", "B"): "2×QCB",
+        ("F", "F"): "Dash F",
+        ("B", "B"): "Dash B",
+    }
+    if charge and len(dirs) >= 2:
+        motion = f"Charge {charge[1]} → {dirs[-1]}"
+    else:
+        motion = motion_map.get(seq, " → ".join(dirs))
+    button = " + ".join(buttons)
+    if motion and button:
+        return f"{motion} + {button}"
+    return motion or button or original
+
+
+def _mugen_action_category(action_no: int, input_raw: str = "") -> str:
+    if _standard_action_info(action_no):
+        return "standard"
+    if 3000 <= action_no < 5000:
+        return "super"
+    if 1000 <= action_no < 3000:
+        return "special"
+    if 200 <= action_no < 1000:
+        return "normal"
+    if 5000 <= action_no < 6000:
+        return "hit/KO"
+    return "misc"
+
 
 def _clean_move_label(text: str, fallback: str) -> str:
     t = (text or "").strip().strip(";:-_ ")
@@ -1095,29 +1246,41 @@ def _parse_statedef_animation_map(info: MugenCharacterInfo) -> Tuple[Dict[int, i
     return state_to_anim, labels
 
 def scan_mugen_attack_candidates(info: MugenCharacterInfo, actions: Dict[int, AirAction]) -> List[dict]:
-    """Deep-scan CMD/CNS/AIR to find move animations and human-ish labels.
+    """Find real playable attacks by tracing CMD input -> State -1 -> StateDef -> AIR.
 
-    This does not execute MUGEN logic. It only follows obvious ChangeState links from
-    command blocks into StateDefs and then maps those states to AIR animation numbers.
+    AIR can contain hundreds of helpers, effects and transition animations. A move that
+    is actually reachable from a [Command] is much stronger evidence than merely living
+    in the conventional 200-4999 action ranges.
     """
     state_to_anim, state_labels = _parse_statedef_animation_map(info)
+    command_defs = _parse_mugen_command_definitions(info)
     found: Dict[int, dict] = {}
 
-    def add(action_no: int, name: str, score: int, source: str, state_no: Optional[int] = None):
+    def add(action_no: int, name: str, score: int, source: str, state_no: Optional[int] = None,
+            command_name: str = "", input_raw: str = ""):
         if action_no not in actions or not actions[action_no].frames:
             return
         comment = actions[action_no].comment or ""
         fallback = comment or (f"Action {action_no}")
         label = _clean_move_label(name or comment, fallback)
         item = {
-            "action": action_no, "name": label, "score": score, "source": source,
-            "state": state_no, "type": _infer_rumble_attack_type(label, action_no),
+            "action": action_no,
+            "name": label,
+            "score": score,
+            "source": source,
+            "state": state_no,
+            "type": _infer_rumble_attack_type(label, action_no),
+            "command_name": command_name,
+            "input": input_raw,
+            "input_display": _humanize_mugen_input(input_raw),
+            "category": _mugen_action_category(action_no, input_raw),
+            "recommended": bool(input_raw),
         }
         old = found.get(action_no)
         if old is None or score > old["score"]:
             found[action_no] = item
 
-    # AIR comments often already contain useful move names.
+    # AIR comments are useful fallback labels, but not proof that an action is a playable move.
     for n, a in actions.items():
         if not (200 <= n <= 4999) or not a.frames:
             continue
@@ -1129,69 +1292,103 @@ def scan_mugen_attack_candidates(info: MugenCharacterInfo, actions: Dict[int, Ai
         else:
             add(n, f"Action {n}", base_score, "AIR range")
 
-    # CMD command/state blocks are much better evidence that something is a real move.
+    # State -1 is MUGEN's command-entry layer. Follow its command triggers to the
+    # target StateDef, then follow that StateDef to the animation it actually plays.
     if info.cmd_file and info.cmd_file.exists():
         text = _decode_text(info.cmd_file)
         section_re = re.compile(r"^\s*\[([^\]]+)\]\s*$")
-        blocks=[]; header=None; body=[]
-        for raw in text.splitlines()+["[__END__]"]:
-            m=section_re.match(raw)
+        blocks = []
+        header = None
+        body = []
+        for raw in text.splitlines() + ["[__END__]"]:
+            m = section_re.match(raw)
             if m:
                 if header is not None:
                     blocks.append((header, body))
-                header=m.group(1).strip(); body=[]
+                header = m.group(1).strip()
+                body = []
             else:
                 body.append(raw)
         for header, lines in blocks:
             if not header.lower().startswith("state -1"):
                 continue
             label = header.split(",", 1)[1].strip() if "," in header else ""
-            clean_lines=[]
+            clean_lines = []
             for raw in lines:
-                line=raw.split(";",1)[0].strip()
+                line = raw.split(";", 1)[0].strip()
                 if line:
                     clean_lines.append(line)
-            blob="\n".join(clean_lines)
+            blob = "\n".join(clean_lines)
             if not re.search(r"(?im)^\s*type\s*=\s*changestate\b", blob):
                 continue
-            mv=re.search(r"(?im)^\s*value\s*=\s*(-?\d+)", blob)
+            mv = re.search(r"(?im)^\s*value\s*=\s*(-?\d+)", blob)
             if not mv:
                 continue
-            state_no=int(mv.group(1))
-            commands=re.findall(r'(?im)command\s*=\s*["\']?([^"\'\r\n]+)', blob)
-            cmd_name=commands[0].strip() if commands else ""
-            if not label:
-                label=state_labels.get(state_no, "") or cmd_name
-            anim_no=state_to_anim.get(state_no, state_no)
-            # A named command-linked move is strong evidence. Specials/hypers score higher.
-            tier = 30 if 1000 <= state_no < 3000 else 45 if 3000 <= state_no < 5000 else 15
-            add(anim_no, label or cmd_name or f"State {state_no}", 100+tier, "CMD → StateDef", state_no)
+            state_no = int(mv.group(1))
+            command_names = re.findall(r'(?im)command\s*=\s*["\']?([^"\'\r\n]+)', blob)
+            command_name = ""
+            input_raw = ""
+            # Prefer a command that actually has a [Command] definition. Ignore hold-only
+            # navigation triggers unless they are the only clue.
+            for name in command_names:
+                candidate = name.strip()
+                if candidate in command_defs:
+                    command_name = candidate
+                    input_raw = command_defs[candidate]
+                    if candidate.lower() not in {"holdfwd", "holdback", "holdup", "holddown"}:
+                        break
+            if not command_name and command_names:
+                command_name = command_names[0].strip()
+                input_raw = command_defs.get(command_name, "")
 
-    ranked=sorted(found.values(), key=lambda x: (-x["score"], x["action"]))
-    return ranked
+            if not label or label.lower().startswith("ai"):
+                label = state_labels.get(state_no, "") or command_name
+            anim_no = state_to_anim.get(state_no, state_no)
+            tier = 30 if 1000 <= state_no < 3000 else 45 if 3000 <= state_no < 5000 else 15
+            input_bonus = 45 if input_raw else 0
+            add(
+                anim_no,
+                label or command_name or f"State {state_no}",
+                100 + tier + input_bonus,
+                "CMD input → StateDef",
+                state_no,
+                command_name,
+                input_raw,
+            )
+
+    return sorted(found.values(), key=lambda x: (-bool(x.get("input")), -x["score"], x["action"]))
 
 def choose_mugen_attack_slots(actions: Dict[int, AirAction], candidates: List[dict]) -> List[dict]:
-    """Pick four varied attacks: normal, specials, hyper when available."""
+    """Pick a useful mix, strongly preferring moves that have real CMD inputs."""
     if not candidates:
         return []
-    pools = [
-        [x for x in candidates if 200 <= x["action"] < 1000],
-        [x for x in candidates if 1000 <= x["action"] < 3000],
-        [x for x in candidates if 3000 <= x["action"] < 5000],
-    ]
-    chosen=[]
-    # One normal, up to two specials, one hyper is a useful generic mix.
-    wishes=[(0,1),(1,2),(2,1)]
-    for pi,count in wishes:
-        for item in pools[pi][:count]:
+    input_linked = [x for x in candidates if x.get("input")]
+    source = input_linked if input_linked else candidates
+    chosen = []
+
+    def take(category: str, count: int):
+        pool = [x for x in source if x.get("category") == category]
+        for item in pool:
+            if len([x for x in chosen if x.get("category") == category]) >= count:
+                break
             if item["action"] not in {x["action"] for x in chosen}:
                 chosen.append(item)
-    for item in candidates:
-        if len(chosen)>=4: break
+
+    take("normal", 1)
+    take("special", 2)
+    take("super", 1)
+    for item in source:
+        if len(chosen) >= 4:
+            break
         if item["action"] not in {x["action"] for x in chosen}:
             chosen.append(item)
+    if len(chosen) < 4:
+        for item in candidates:
+            if len(chosen) >= 4:
+                break
+            if item["action"] not in {x["action"] for x in chosen}:
+                chosen.append(item)
     return chosen[:4]
-
 
 def import_mugen_character(
     source: Path, fighters_dir: Path, franchise: str = "MUGEN Import",
@@ -1411,6 +1608,9 @@ def import_mugen_character(
                 "mugen_action": action_no,
                 "mugen_state": move.get("state"),
                 "mugen_detection": move.get("source", "AIR"),
+                "mugen_command": move.get("command_name", ""),
+                "mugen_input": move.get("input", ""),
+                "mugen_input_display": move.get("input_display", ""),
             })
         if preserve_existing and old_meta and lock_attacks:
             by_slot = {str(a.get("animation", "")): dict(a) for a in attacks if isinstance(a, dict)}
@@ -1507,25 +1707,35 @@ def import_mugen_character(
         move_index = []
         for action_no, rel in sorted(exported.items()):
             cand = move_by_action.get(int(action_no), {})
+            standard = _standard_action_info(int(action_no))
             comment = actions[action_no].comment if action_no in actions else ""
             clean_comment = comment.strip(" ;-_") if comment else ""
-            name = cand.get("name") or clean_comment or f"Action {action_no}"
+            name = cand.get("name") or standard.get("name") or clean_comment or f"Action {action_no}"
             if len(name) > 80:
                 name = f"Action {action_no}"
             mapped_slots = sorted(
                 slot for slot, number in mapping.items()
                 if isinstance(number, int) and int(number) == int(action_no)
             )
+            category = cand.get("category") or ("standard" if standard else _mugen_action_category(int(action_no)))
+            input_raw = cand.get("input", "") or ""
+            recommended = bool(cand.get("recommended")) or bool(standard.get("slot_hint"))
             move_index.append({
                 "action": int(action_no),
                 "name": name,
                 "type": cand.get("type") or _infer_rumble_attack_type(name, int(action_no)),
                 "score": int(cand.get("score", 0) or 0),
                 "state": cand.get("state"),
-                "source": cand.get("source", "AIR action"),
+                "source": cand.get("source", "MUGEN standard" if standard else "AIR action"),
                 "comment": comment,
                 "gif": rel,
                 "mapped_slots": mapped_slots,
+                "slot_hint": standard.get("slot_hint", ""),
+                "category": category,
+                "command_name": cand.get("command_name", ""),
+                "input": input_raw,
+                "input_display": cand.get("input_display") or _humanize_mugen_input(input_raw),
+                "recommended": recommended,
             })
         (target / "MUGEN_MOVE_INDEX.json").write_text(
             json.dumps({

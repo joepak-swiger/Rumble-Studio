@@ -1187,14 +1187,106 @@ class Rumble:
                 d.line((x-r-8, y-70, x+r+8, y-70), fill=c, width=2)
                 d.line((x, y-70-r-8, x, y-70+r+8), fill=c, width=2)
 
+    def _intro_fighter_box(self, f: Fighter) -> Tuple[float, float, float, float]:
+        """Approximate the fighter + name/HP footprint during the frozen intro."""
+        frames = []
+        for anim_name in ("idle", "entrance"):
+            try:
+                frames.append(f.pack.anim(anim_name).frame_at(0.0))
+            except Exception:
+                pass
+        if not frames:
+            return (f.x - 32, f.y - 90, f.x + 32, f.y + 15)
+        src_w = max(fr.width for fr in frames)
+        src_h = max(fr.height for fr in frames)
+        if len(self.fighters) > 24:
+            crowd_scale = 0.68
+        elif len(self.fighters) > 16:
+            crowd_scale = 0.82
+        else:
+            crowd_scale = 1.0
+        scale = f.pack.scale * crowd_scale
+        w = max(18.0, src_w * scale)
+        h = max(24.0, src_h * scale)
+        # draw_fighter anchors the sprite around (x, y) with the feet near y+12.
+        left = f.x - w / 2 - 9
+        right = f.x + w / 2 + 9
+        top = f.y - h + 12 - (25 if len(self.fighters) <= 16 else 14)
+        bottom = f.y + 18
+        return (left, top, right, bottom)
+
+    def _who_will_win_rect(self) -> Tuple[int, int, int, int]:
+        """Find a centered card inside the formation's empty middle.
+
+        For a normal clock-style circle this naturally uses the 3/9 o'clock
+        fighters as the left/right limits while the 10/2 and 8/4 fighters keep
+        the top/bottom clear. Large two-ring casts get a smaller best-fit card.
+        """
+        cx = W / 2
+        cy = (ARENA_TOP + ARENA_BOTTOM) / 2 + 18
+        # Giant rumbles have two packed rings and no honest central rectangle.
+        # Put the prompt in the footer outside the arena rather than covering anyone.
+        if len(self.fighters) > 24:
+            return (92, H - 56, W - 92, H - 8)
+        boxes = [self._intro_fighter_box(f) for f in self.fighters if self.t >= f.spawn_time]
+
+        best = None
+        # Stay centered first; only nudge vertically if a large/two-ring cast needs it.
+        offsets = [0]
+        for step in range(30, 331, 30):
+            offsets.extend((-step, step))
+        for height in (112, 100, 88, 78):
+            for offset in offsets:
+                center_y = cy + offset
+                y0 = max(ARENA_TOP + 24, center_y - height / 2)
+                y1 = min(ARENA_BOTTOM - 24, center_y + height / 2)
+                if y1 - y0 < 78:
+                    continue
+
+                left_limit = 30.0
+                right_limit = W - 30.0
+                for left, top, right, bottom in boxes:
+                    if bottom < y0 - 8 or top > y1 + 8:
+                        continue
+                    mid_x = (left + right) / 2
+                    if mid_x < cx:
+                        left_limit = max(left_limit, right + 10)
+                    else:
+                        right_limit = min(right_limit, left - 10)
+
+                half = min(cx - left_limit, right_limit - cx, 175.0)
+                width = half * 2
+                if width < 188:
+                    continue
+                # Prefer the widest card and the clock-center position.
+                score = width - abs(offset) * 0.12 + (y1 - y0) * 0.05
+                if best is None or score > best[0]:
+                    best = (score, int(cx - half), int(y0), int(cx + half), int(y1))
+
+        if best is not None:
+            return best[1], best[2], best[3], best[4]
+
+        # Extreme crowd fallback: compact center badge rather than covering fighters.
+        return (int(cx - 96), int(cy - 44), int(cx + 96), int(cy + 44))
+
     def draw_intro_overlay(self, img: Image.Image):
         if not self.opening_enabled or self.t >= self.battle_start_t:
             return
         d = ImageDraw.Draw(img)
         if self.show_who_will_win and self.choose_start_t <= self.t < self.choose_end_t:
-            d.rounded_rectangle((72, 392, W-72, 520), 22, fill=(10, 14, 22), outline=(245, 210, 70), width=3)
-            d.text((W//2, 425), "WHO WILL WIN?", font=FONT_WIN, anchor="ma", fill=(255, 235, 110))
-            d.text((W//2, 478), "CHOOSE YOUR FIGHTER", font=FONT_NAME, anchor="ma", fill=(245, 245, 245))
+            x0, y0, x1, y1 = self._who_will_win_rect()
+            width = x1 - x0
+            height = y1 - y0
+            radius = max(14, min(22, height // 5))
+            d.rounded_rectangle((x0, y0, x1, y1), radius, fill=(10, 14, 22), outline=(245, 210, 70), width=3)
+            if height < 70:
+                title_font = load_font(20)
+                sub_font = FONT_TINY
+            else:
+                title_font = load_font(31 if width >= 285 else 27 if width >= 235 else 23)
+                sub_font = FONT_NAME if width >= 240 else FONT_SMALL
+            d.text(((x0+x1)//2, y0 + height*0.37), "WHO WILL WIN?", font=title_font, anchor="mm", fill=(255, 235, 110))
+            d.text(((x0+x1)//2, y0 + height*0.72), "CHOOSE YOUR FIGHTER", font=sub_font, anchor="mm", fill=(245, 245, 245))
             return
         if self.show_countdown and self.countdown_start_t <= self.t < self.rumble_start_t:
             elapsed = self.t - self.countdown_start_t

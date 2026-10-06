@@ -33,3 +33,7 @@ Personal sprite collections, MUGEN characters, imported fighters, and rendered v
 Current baseline: v0.15
 
 Rumble Studio is under active development.
+
+- MUGEN Smart Scan reads semantic command inputs and prioritizes playable/standard animations over helper clutter.
+
+- Transformation Lab includes same-franchise transformation target filtering for easier Digimon/Pokemon line building.
