@@ -57,3 +57,6 @@ MUGEN_BATCH_IMPORT_REPORT.txt
 
 # Local entrance profile preferences
 entrance_profiles.json
+
+# Local inspiration/reference media
+Inspiration/

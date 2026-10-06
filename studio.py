@@ -143,7 +143,7 @@ def load_roster() -> dict:
     data = read_json(ROSTER_FILE, {})
     if not isinstance(data, dict):
         data = {}
-    data.setdefault("studio", {"title": "RUMBLE STUDIO", "subtitle": "v0.15 • Battle Opening"})
+    data.setdefault("studio", {"title": "RUMBLE STUDIO", "subtitle": "v0.16 • Battle Presentation"})
     data.setdefault("fighters", [])
     data.setdefault("opening", {
         "enabled": True,
@@ -163,7 +163,7 @@ def write_roster(pack_names: List[str], opening: Optional[dict] = None) -> None:
     data = load_roster()
     data["studio"] = {
         "title": data.get("studio", {}).get("title", "RUMBLE STUDIO"),
-        "subtitle": "v0.15 • Battle Opening",
+        "subtitle": "v0.16 • Battle Presentation",
     }
     data["fighters"] = [{"pack": p} for p in pack_names]
     if opening is not None:
@@ -525,7 +525,7 @@ class TransformationDialog(tk.Toplevel):
 class StudioApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Rumble Studio v0.15 — Battle Opening & Entrance Studio")
+        self.root.title("Rumble Studio v0.16 — Battle Presentation Director")
         self.root.geometry("1220x830")
         self.root.minsize(1050, 720)
 
@@ -1192,7 +1192,7 @@ class StudioApp:
         self.roster_tab.rowconfigure(4, weight=1)
         ttk.Label(
             self.roster_tab,
-            text="Choose any saved fighters for the next rumble. Search, filter, or let Studio pick a random cast.",
+            text="Choose any saved fighters for the next rumble. v0.16 adds adaptive HUDs, survivor milestones, kill feed, and FINAL TWO presentation.",
             font=("Arial", 11, "bold"),
         ).grid(row=0, column=0, sticky="w", pady=(0,8))
 
@@ -1271,7 +1271,7 @@ class StudioApp:
 
     def _build_help_tab(self):
         text = (
-            "RUMBLE STUDIO v0.15 — QUICK GUIDE\n\n"
+            "RUMBLE STUDIO v0.16 — QUICK GUIDE\n\n"
             "BATTLE OPENING & ENTRANCE STUDIO\n"
             "v0.15 starts fighters in fair circular/two-ring formations. Fighters enter clockwise from 12 o'clock, then WHO WILL WIN?, a countdown, and RUMBLE! can play before AI combat starts. "
             "Fighter Editor now has an Entrance animation slot. Entrance Studio assigns shared visual effects by franchise and/or Stage/Form; specific franchise+stage rules override franchise-wide defaults.\n\n"

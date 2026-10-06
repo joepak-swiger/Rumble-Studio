@@ -1,5 +1,19 @@
 # Rumble Studio Changelog
 
+## v0.16
+- Fixed Battle Presentation Director crash caused by missing Python `re` import in special-move classification.
+
+### Battle Presentation Director
+
+- Added adaptive HUD densities for small, medium, and giant rumbles.
+- Added a dedicated FINAL TWO head-to-head HUD that removes defeated-roster clutter.
+- Added a live remaining-fighter counter during combat.
+- Added survivor milestone banners for 32, Final 16, Final 8, Final 4, and Final Two when applicable.
+- Added a compact kill feed showing recent eliminations and transformations.
+- KO presentation now shows the defeated fighter's name in normal-size battles.
+- Existing transformations remain visible near the fighter and now also appear in the event feed.
+
+
 ## v0.15
 - Transformation Rule targets are now reliably restricted to the source fighter's franchise using the source pack directly.
 

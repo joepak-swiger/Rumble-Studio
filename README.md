@@ -21,6 +21,7 @@ It creates autonomous battles between sprite-based fighters and renders the resu
 - Vertical video rendering
 - Battle Opening & Spawn Director with circular entrances, WHO WILL WIN?, countdown, and RUMBLE!
 - Entrance Studio with franchise / Stage-Form entrance profiles
+- Battle Presentation Director with adaptive HUDs, remaining counter, kill feed, survivor milestones, and FINAL TWO mode
 
 ## Character Assets
 
@@ -30,7 +31,7 @@ Personal sprite collections, MUGEN characters, imported fighters, and rendered v
 
 ## Development Status
 
-Current baseline: v0.15
+Current baseline: v0.16
 
 Rumble Studio is under active development.
 

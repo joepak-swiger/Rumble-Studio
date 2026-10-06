@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -385,9 +386,26 @@ class EliminationEvent:
     x: float
     y: float
     name: str
+    killer: str = ""
+    age: float = 0.0
+    life: float = 1.30
+    final: bool = False
+
+
+@dataclass
+class KillFeedEvent:
+    killer: str
+    victim: str
+    age: float = 0.0
+    life: float = 3.20
+
+
+@dataclass
+class MilestoneEvent:
+    text: str
+    subtitle: str = ""
     age: float = 0.0
     life: float = 1.15
-    final: bool = False
 
 
 @dataclass
@@ -412,8 +430,11 @@ class Rumble:
         self.impacts: List[ImpactEffect] = []
         self.damage_events: List[DamageEvent] = []
         self.elimination_events: List[EliminationEvent] = []
+        self.kill_feed_events: List[KillFeedEvent] = []
+        self.milestone_events: List[MilestoneEvent] = []
         self.transformation_events: List[TransformationEvent] = []
         self.final_hit_t: float = 0.0
+        self.milestones_announced: set[int] = set()
 
         studio = roster.get("studio", {})
         self.title = studio.get("title", "RUMBLE STUDIO")
@@ -432,6 +453,7 @@ class Rumble:
         self.entrance_effect_life = 0.72
 
         entries = list(roster["fighters"])
+        self.initial_fighter_count = len(entries)
         positions = self._formation_positions(len(entries))
         for idx, entry in enumerate(entries):
             pack = FighterPack(ASSETS / entry["pack"])
@@ -510,6 +532,41 @@ class Rumble:
 
     def living(self) -> List[int]:
         return [i for i, f in enumerate(self.fighters) if f.alive]
+
+    def _announce_remaining_milestone(self, remaining: int):
+        thresholds = {
+            32: ("32 REMAIN", ""),
+            16: ("FINAL 16", ""),
+            8: ("FINAL 8", ""),
+            4: ("FINAL 4", ""),
+            2: ("FINAL TWO", "LAST TWO STANDING"),
+        }
+        if remaining not in thresholds:
+            return
+        if remaining in self.milestones_announced or self.initial_fighter_count <= remaining:
+            return
+        self.milestones_announced.add(remaining)
+        title, subtitle = thresholds[remaining]
+        self.milestone_events.append(MilestoneEvent(title, subtitle))
+
+    @staticmethod
+    def _attack_callout_tier(attack: AttackDef) -> int:
+        name = str(attack.name or "").strip().lower()
+        generic = (
+            not name or name.startswith("attack ")
+            or name in {"basic strike", "punch", "kick", "jab", "throw"}
+            or re.fullmatch(r"(light|medium|strong)?\s*(punch|kick)", name or "") is not None
+        )
+        action = int(getattr(attack, "mugen_action", 0) or 0)
+        if action >= 3000:
+            return 2
+        if action >= 1000:
+            return 1
+        if not generic and attack.kind == "beam":
+            return 2
+        if not generic and attack.kind == "projectile":
+            return 1
+        return 0
 
     def choose_target(self, i: int):
         f = self.fighters[i]
@@ -651,7 +708,8 @@ class Rumble:
         f.anim_t = 0.0
         f.cooldown = attack.cooldown * self.rng.uniform(0.92, 1.08)
         f.attack_label = attack.name
-        f.attack_label_t = 0.65
+        f.attack_label_tier = self._attack_callout_tier(attack)
+        f.attack_label_t = 0.95 if f.attack_label_tier >= 2 else (0.78 if f.attack_label_tier == 1 else 0.0)
 
         if attack.kind == "melee":
             self.apply_damage(owner_idx, target_idx, attack, g.x, g.y - 22)
@@ -735,7 +793,12 @@ class Rumble:
             owner.kills += 1
             remaining = [j for j, h in enumerate(self.fighters) if h.alive]
             final = len(remaining) == 1
-            self.elimination_events.append(EliminationEvent(target.x, target.y - 28, target.name, final=final))
+            self.elimination_events.append(
+                EliminationEvent(target.x, target.y - 28, target.name, killer=owner.name, final=final)
+            )
+            self.kill_feed_events.append(KillFeedEvent(owner.name, target.name))
+            self.kill_feed_events = self.kill_feed_events[-6:]
+            self._announce_remaining_milestone(len(remaining))
             if final:
                 self.final_hit_t = 0.85
             for h in self.fighters:
@@ -801,10 +864,15 @@ class Rumble:
         f.transform_lock_t = TRANSFORM_LOCK_SECONDS
         f.transform_count += 1
         f.decision_t = 0.0
+        transform_label = str(chosen.get("label", "TRANSFORM!")) or "TRANSFORM!"
         self.transformation_events.append(TransformationEvent(
             fighter=fighter_idx, old_name=old_name, new_name=f.name,
-            label=str(chosen.get("label", "TRANSFORM!")) or "TRANSFORM!",
+            label=transform_label,
         ))
+        self.kill_feed_events.append(
+            KillFeedEvent(transform_label.upper(), f"{old_name} → {f.name}", life=2.8)
+        )
+        self.kill_feed_events = self.kill_feed_events[-6:]
         return True
 
     def update_projectiles(self, dt: float):
@@ -846,6 +914,12 @@ class Rumble:
         for e in self.elimination_events:
             e.age += dt
         self.elimination_events = [e for e in self.elimination_events if e.age < e.life]
+        for e in self.kill_feed_events:
+            e.age += dt
+        self.kill_feed_events = [e for e in self.kill_feed_events if e.age < e.life]
+        for e in self.milestone_events:
+            e.age += dt
+        self.milestone_events = [e for e in self.milestone_events if e.age < e.life]
         for e in self.transformation_events:
             e.age += dt
         self.transformation_events = [e for e in self.transformation_events if e.age < e.life]
@@ -999,31 +1073,59 @@ class Rumble:
             fill=(190, 205, 215),
         )
 
-        # Roster HUD: normal roomy layout for small fights, compact 8-column grid
-        # for giant rumbles (e.g. all 38 bundled DWC Rookies) so the HUD never
-        # spills down over the arena.
-        if len(self.fighters) <= 12:
-            cols, y0, row_h, name_font, name_chars, bar_h = 4, 82, 30, FONT_SMALL, 10, 7
-            colw = W // cols
-            xpad, bar_gap = 10, 15
+        self.draw_roster_hud(d)
+
+    def draw_roster_hud(self, d: ImageDraw.ImageDraw):
+        living = self.living()
+
+        # Dedicated Final Two HUD: only the survivors matter now.
+        if self.t >= self.battle_start_t and len(living) == 2:
+            left_f = self.fighters[living[0]]
+            right_f = self.fighters[living[1]]
+            cards = [(left_f, 12, W // 2 - 18), (right_f, W // 2 + 18, W - 12)]
+            for f, x0, x1 in cards:
+                y0 = 78
+                d.rounded_rectangle((x0, y0, x1, 137), 8, fill=(20,25,33), outline=(105,125,145), width=2)
+                d.text(((x0+x1)//2, y0+12), f.name[:15], font=FONT_SMALL, anchor="ma", fill=(245,245,245))
+                d.text(((x0+x1)//2, y0+28), f"{f.kills} KO", font=FONT_TINY, anchor="ma", fill=(185,200,215))
+                bx0, bx1, by = x0+10, x1-10, y0+43
+                d.rectangle((bx0, by, bx1, by+8), fill=(45,45,50))
+                ratio = f.hp / max(1.0, f.max_hp)
+                color = (60,205,90) if ratio > .5 else ((240,180,40) if ratio > .25 else (225,60,60))
+                if ratio > 0:
+                    d.rectangle((bx0, by, bx0 + (bx1-bx0)*ratio, by+8), fill=color)
+            d.text((W//2, 105), "VS", font=FONT_TITLE, anchor="mm", fill=(255,220,80))
+            return
+
+        n = len(self.fighters)
+        if n <= 8:
+            cols, y0, row_h, name_font, name_chars, bar_h, xpad, bar_gap = 4, 82, 30, FONT_SMALL, 11, 7, 10, 15
+        elif n <= 20:
+            cols, y0, row_h, name_font, name_chars, bar_h, xpad, bar_gap = 5, 76, 18, FONT_TINY, 9, 4, 6, 10
         else:
-            cols, y0, row_h, name_font, name_chars, bar_h = 8, 73, 15, FONT_TINY, 7, 3
-            colw = W // cols
-            xpad, bar_gap = 4, 9
+            cols, y0, row_h, name_font, name_chars, bar_h, xpad, bar_gap = 8, 73, 14, FONT_TINY, 7, 3, 4, 8
+        colw = W // cols
         for i, f in enumerate(self.fighters):
             col, row = i % cols, i // cols
             x, y = xpad + col * colw, y0 + row * row_h
-            label = f.name[:name_chars]
-            d.text((x, y), label, font=name_font, fill=(240, 240, 240) if f.alive else (120, 120, 120))
+            d.text((x, y), f.name[:name_chars], font=name_font,
+                   fill=(240,240,240) if f.alive else (105,105,110))
             bx, by, bw = x, y + bar_gap, colw - xpad * 2
-            d.rectangle((bx, by, bx + bw, by + bar_h), fill=(45, 45, 50))
-            ratio = f.hp / f.max_hp
-            fill = (55, 200, 90) if ratio > .5 else ((235, 180, 50) if ratio > .25 else (220, 65, 65))
+            d.rectangle((bx, by, bx+bw, by+bar_h), fill=(45,45,50))
+            ratio = f.hp / max(1.0, f.max_hp)
+            fill = (55,200,90) if ratio > .5 else ((235,180,50) if ratio > .25 else (220,65,65))
             if ratio > 0:
-                d.rectangle((bx, by, bx + bw * ratio, by + bar_h), fill=fill)
+                d.rectangle((bx, by, bx+bw*ratio, by+bar_h), fill=fill)
             if not f.alive:
-                strike_w = min(bw, 45 if len(self.fighters) > 12 else 70)
-                d.line((x, y + max(3, bar_gap // 2), x + strike_w, y + max(3, bar_gap // 2)), fill=(210, 70, 70), width=1 if len(self.fighters) > 12 else 2)
+                d.line((x, y+max(3,bar_gap//2), x+min(bw,42 if n>8 else 70), y+max(3,bar_gap//2)),
+                       fill=(205,70,70), width=1 if n>8 else 2)
+
+        if self.t >= self.battle_start_t and len(living) > 2:
+            text = f"{len(living)} REMAIN"
+            x1, y0 = W-28, ARENA_TOP+14
+            x0 = x1 - 102
+            d.rounded_rectangle((x0,y0,x1,y0+27), 8, fill=(15,20,28), outline=(130,145,160), width=2)
+            d.text(((x0+x1)//2,y0+14), text, font=FONT_SMALL, anchor="mm", fill=(245,245,245))
 
     def draw_projectiles(self, img: Image.Image):
         d = ImageDraw.Draw(img)
@@ -1080,10 +1182,29 @@ class Rumble:
         crowded = len(self.fighters) > 16
         label_font = FONT_TINY if crowded else FONT_ATTACK
         name_font = FONT_TINY if crowded else FONT_NAME
-        if f.attack_label_t > 0 and f.alive:
-            alpha = min(1.0, f.attack_label_t / 0.25)
-            c = tuple(int(245 * alpha) for _ in range(3))
-            d.text((int(f.x), py - (22 if crowded else 34)), f.attack_label[:14] if crowded else f.attack_label, font=label_font, anchor="ma", fill=c)
+        if f.attack_label_t > 0 and f.alive and f.attack_label_tier > 0:
+            if f.attack_label_tier >= 2:
+                c = (255, 226, 90)
+                callout_font = FONT_NAME if crowded else FONT_TITLE
+                label = f.attack_label[:16] if crowded else f.attack_label[:26]
+            else:
+                c = (245, 245, 245)
+                callout_font = label_font
+                label = f.attack_label[:14] if crowded else f.attack_label[:22]
+            d.text((int(f.x), py - (23 if crowded else 38)), label.upper(), font=callout_font,
+                   anchor="ma", fill=c, stroke_width=1 if f.attack_label_tier >= 2 else 0,
+                   stroke_fill=(20,24,32))
+
+        if (self.opening_enabled and self.show_who_will_win
+                and self.choose_start_t <= self.t < self.choose_end_t
+                and len(self.fighters) <= 16):
+            badge_x = int(f.x + (24 if not crowded else 16))
+            badge_y = int(py - (11 if crowded else 16))
+            r = 10 if not crowded else 8
+            d.ellipse((badge_x-r, badge_y-r, badge_x+r, badge_y+r),
+                      fill=(15,20,28), outline=(250,211,64), width=2)
+            d.text((badge_x, badge_y), str(f.spawn_index + 1),
+                   font=FONT_TINY if crowded else FONT_SMALL, anchor="mm", fill=(255,240,125))
 
         name_y = py - (12 if crowded else 19)
         d.text((int(f.x), name_y), f.name[:10] if crowded else f.name, font=name_font, anchor="ma", fill=(255, 255, 255))
@@ -1117,10 +1238,18 @@ class Rumble:
 
         for e in self.elimination_events:
             p = e.age / e.life
-            yy = e.y - 36 - p * 26
-            text = "FINAL KO!" if e.final else "KO!"
-            c = (255, 220, 70) if e.final else (255, 100, 95)
-            d.text((int(e.x), int(yy)), text, font=FONT_TITLE if e.final else FONT_NAME, anchor="mm", fill=c)
+            yy = e.y - 38 - p * 24
+            c = (255,220,70) if e.final else (255,105,100)
+            if e.final:
+                d.text((int(e.x), int(yy)), "FINAL KO!", font=FONT_TITLE, anchor="mm", fill=c,
+                       stroke_width=2, stroke_fill=(20,24,32))
+            elif len(self.fighters) <= 16:
+                d.text((int(e.x), int(yy-7)), e.name[:16].upper(), font=FONT_SMALL, anchor="mm",
+                       fill=(245,245,245), stroke_width=1, stroke_fill=(20,24,32))
+                d.text((int(e.x), int(yy+9)), "DEFEATED", font=FONT_NAME, anchor="mm", fill=c,
+                       stroke_width=1, stroke_fill=(20,24,32))
+            else:
+                d.text((int(e.x), int(yy)), "KO!", font=FONT_SMALL, anchor="mm", fill=c)
 
         for e in self.transformation_events:
             if e.fighter < 0 or e.fighter >= len(self.fighters):
@@ -1139,6 +1268,42 @@ class Rumble:
             strength = min(1.0, self.final_hit_t / 0.28)
             c = (255, int(220 * strength + 25), 70)
             d.text((W // 2, ARENA_TOP + 30), "FINAL HIT!", font=FONT_TITLE, anchor="ma", fill=c)
+
+    def draw_battle_presentation(self, img: Image.Image):
+        if self.t < self.battle_start_t:
+            return
+        d = ImageDraw.Draw(img)
+
+        active = [e for e in self.kill_feed_events if e.age < e.life][-4:]
+        base_y = ARENA_BOTTOM - 14
+        for pos, e in enumerate(reversed(active)):
+            p = e.age / max(0.001, e.life)
+            y1 = base_y - pos * 27
+            y0 = y1 - 24
+            fade = clamp((1.0-p)*1.7, 0.28, 1.0)
+            bg = tuple(int(v*fade) for v in (22,28,36))
+            outline = tuple(int(v*fade) for v in (95,112,128))
+            x0, x1 = 24, 252
+            d.rounded_rectangle((x0,y0,x1,y1), 6, fill=bg, outline=outline, width=1)
+            if "→" in e.victim and e.killer.endswith("!"):
+                text, color = f"{e.killer}  {e.victim}", (255,225,95)
+            else:
+                text, color = f"{e.killer[:11]}  >  {e.victim[:11]}", (235,240,245)
+            d.text((x0+7,(y0+y1)//2), text, font=FONT_TINY, anchor="lm", fill=color)
+
+        if self.milestone_events:
+            e = self.milestone_events[-1]
+            if e.age < e.life:
+                p = e.age / max(0.001,e.life)
+                w = int(235*(1.0+0.06*math.sin(p*math.pi)))
+                h = 55 if e.subtitle else 43
+                cx, cy = W//2, ARENA_TOP+62
+                d.rounded_rectangle((cx-w//2,cy-h//2,cx+w//2,cy+h//2), 12,
+                                    fill=(12,17,24), outline=(250,211,64), width=3)
+                d.text((cx,cy-(8 if e.subtitle else 0)), e.text, font=FONT_TITLE, anchor="mm",
+                       fill=(255,225,85), stroke_width=1, stroke_fill=(20,24,32))
+                if e.subtitle:
+                    d.text((cx,cy+16), e.subtitle, font=FONT_TINY, anchor="mm", fill=(240,240,240))
 
     def draw_entrance_effects(self, img: Image.Image):
         if not self.opening_enabled or self.t >= self.choose_start_t:
@@ -1366,6 +1531,7 @@ class Rumble:
             self.draw_fighter(img, self.fighters[i])
 
         self.draw_impacts_and_damage(img)
+        self.draw_battle_presentation(img)
         self.draw_intro_overlay(img)
         self.draw_victory_finish(img)
         return img
@@ -1412,7 +1578,7 @@ def run_preview(seed: int):
 
     sim = Rumble(seed, load_roster())
     root = tk.Tk()
-    root.title(f"Rumble Studio v0.15 Preview - seed {seed}")
+    root.title(f"Rumble Studio v0.16 Preview - seed {seed}")
     label = tk.Label(root)
     label.pack()
     last = time.perf_counter()
@@ -1434,7 +1600,7 @@ def run_preview(seed: int):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Rumble Studio v0.15")
+    ap = argparse.ArgumentParser(description="Rumble Studio v0.16")
     ap.add_argument("--mode", choices=["preview", "render"], default="preview")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--output", default="")
