@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """MUGEN -> Rumble Studio importer.
 
-v0.13 expands the importer to understand both classic SFF v1 and MUGEN 1.x /
+v0.14 expands the importer to understand both classic SFF v1 and MUGEN 1.x /
 IKEMEN SFF v2 sprite archives. ZIP archives are handled natively. RAR archives
 are unpacked by Windows' tar/libarchive when available, or by 7-Zip/WinRAR if
 the user has either installed. ZIP archives are handled natively. RAR archives
@@ -1218,13 +1218,13 @@ def import_mugen_character(
         else:
             raise MugenImportError(
                 f"Detected unsupported SFF v{version[0]}.{version[1]}.{version[2]}.{version[3]}. "
-                "Rumble Studio v0.13 supports SFF v1 and SFF v2."
+                "Rumble Studio v0.14 supports SFF v1 and SFF v2."
             )
         actions = parse_air(info.air_file)
         if not actions:
             raise MugenImportError("The AIR file was found, but no animation actions could be parsed.")
 
-        # Load the existing fighter before choosing new mappings so v0.13 can protect
+        # Load the existing fighter before choosing new mappings so v0.14 can protect
         # exact AIR/action choices the user explicitly locked.
         old_meta = {}
         if existing_target is not None:
@@ -1496,12 +1496,47 @@ def import_mugen_character(
             "",
             "NOTES",
             "-----",
-            "- v0.13 deep-scans CMD/CNS/AIR for move-linked animations. Locked mappings are preserved; only unlocked mappings are researched/replaced.",
+            "- v0.14 deep-scans CMD/CNS/AIR for move-linked animations. Locked mappings are preserved; only unlocked mappings are researched/replaced.",
             "- All successfully rendered AIR actions are in mugen_actions/. You can remap them manually in Fighter Editor.",
             "- MUGEN projectiles/helpers and CNS/CMD logic are not executed by Rumble Studio; Rumble uses its own battle engine.",
             "- Native facing defaults to RIGHT for typical MUGEN characters. Change it in Fighter Editor if the art faces left.",
         ]
         (target / "MUGEN_IMPORT_REPORT.txt").write_text("\n".join(report_lines), encoding="utf-8")
+
+        # v0.14: persist a machine-readable index for MUGEN Move Lab.
+        move_index = []
+        for action_no, rel in sorted(exported.items()):
+            cand = move_by_action.get(int(action_no), {})
+            comment = actions[action_no].comment if action_no in actions else ""
+            clean_comment = comment.strip(" ;-_") if comment else ""
+            name = cand.get("name") or clean_comment or f"Action {action_no}"
+            if len(name) > 80:
+                name = f"Action {action_no}"
+            mapped_slots = sorted(
+                slot for slot, number in mapping.items()
+                if isinstance(number, int) and int(number) == int(action_no)
+            )
+            move_index.append({
+                "action": int(action_no),
+                "name": name,
+                "type": cand.get("type") or _infer_rumble_attack_type(name, int(action_no)),
+                "score": int(cand.get("score", 0) or 0),
+                "state": cand.get("state"),
+                "source": cand.get("source", "AIR action"),
+                "comment": comment,
+                "gif": rel,
+                "mapped_slots": mapped_slots,
+            })
+        (target / "MUGEN_MOVE_INDEX.json").write_text(
+            json.dumps({
+                "version": 1,
+                "fighter": info.display_name,
+                "author": info.author,
+                "sff_kind": sff_kind,
+                "moves": move_index,
+            }, indent=2),
+            encoding="utf-8",
+        )
 
         report = {
             "name": info.display_name,
@@ -1520,6 +1555,7 @@ def import_mugen_character(
             "target": str(target),
             "sff_version": version,
             "sff_kind": sff_kind,
+            "move_index_count": len(move_index),
         }
         return target, report
 

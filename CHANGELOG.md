@@ -1,5 +1,21 @@
 # Rumble Studio Changelog
 
+## v0.14
+
+### MUGEN Move Lab
+
+- Added a dedicated MUGEN Move Lab tab.
+- Expanded Move Lab into a full animation mapper: any rendered AIR action can be assigned to Idle, Walk, Run, Hit, Guard, KO, Attack 1-4, Jump, Happy, Cheer, Victory Jump, or Dedicated Victory.
+- General animation mapping does not overwrite combat damage/range/cooldown; Attack 1-4 quick buttons still configure combat moves.
+- Browse/search/filter every rendered AIR action.
+- Preview MUGEN moves directly in Studio.
+- Assign any detected action to Attack 1-4.
+- Optional lock-on-assign keeps chosen mappings stable through future rescans.
+- Move assignments persist immediately without rewriting unrelated fighter settings.
+- MUGEN imports/rescans now write `MUGEN_MOVE_INDEX.json` with move names, AIR actions, StateDefs, inferred attack types, detection source, and confidence scores.
+- Older v0.13 imports remain browseable and can be rescanned once for richer metadata.
+
+
 ## v0.13
 
 Current GitHub baseline.

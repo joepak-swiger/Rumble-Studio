@@ -113,7 +113,7 @@ def load_roster() -> dict:
     data = read_json(ROSTER_FILE, {})
     if not isinstance(data, dict):
         data = {}
-    data.setdefault("studio", {"title": "RUMBLE STUDIO", "subtitle": "v0.13 • Mapping Locks"})
+    data.setdefault("studio", {"title": "RUMBLE STUDIO", "subtitle": "v0.14 • MUGEN Move Lab"})
     data.setdefault("fighters", [])
     return data
 
@@ -124,7 +124,7 @@ def write_roster(pack_names: List[str]) -> None:
     data = load_roster()
     data["studio"] = {
         "title": data.get("studio", {}).get("title", "RUMBLE STUDIO"),
-        "subtitle": "v0.13 • Mapping Locks",
+        "subtitle": "v0.14 • MUGEN Move Lab",
     }
     data["fighters"] = [{"pack": p} for p in pack_names]
     ROSTER_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -422,7 +422,7 @@ class TransformationDialog(tk.Toplevel):
 class StudioApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Rumble Studio v0.13 — Mapping Locks")
+        self.root.title("Rumble Studio v0.14 — MUGEN Move Lab")
         self.root.geometry("1220x830")
         self.root.minsize(1050, 720)
 
@@ -435,7 +435,19 @@ class StudioApp:
         self.attack_data: List[dict] = []
         self.transformation_data: List[dict] = []
 
-        # v0.13 Transformation Lab: edit an entire connected evolution/form graph
+        # v0.14 MUGEN Move Lab: browse every exported AIR action, preview it,
+        # assign it directly to an attack slot, and optionally lock that mapping.
+        self.move_search_var = tk.StringVar()
+        self.move_type_var = tk.StringVar(value="All types")
+        self.move_status_var = tk.StringVar(value="Choose a MUGEN fighter to browse its moves.")
+        self.move_mapping_var = tk.StringVar(value="No MUGEN fighter selected.")
+        self.move_lock_on_assign_var = tk.BooleanVar(value=True)
+        self.move_anim_slot_var = tk.StringVar(value="idle")
+        self.move_items: Dict[str, dict] = {}
+        self.move_preview_anim: Optional[PreviewAnimation] = None
+        self.move_preview_job = None
+
+        # v0.14 Transformation Lab: edit an entire connected evolution/form graph
         # without bouncing back through Fighter Editor for every source form.
         self.transform_lab_rules: Dict[str, List[dict]] = {}
         self.transform_lab_dirty: set[str] = set()
@@ -547,14 +559,17 @@ class StudioApp:
         self.tabs.grid(row=0, column=1, sticky="nsew")
         self.editor_tab = ttk.Frame(self.tabs, padding=10)
         self.transform_tab = ttk.Frame(self.tabs, padding=12)
+        self.move_lab_tab = ttk.Frame(self.tabs, padding=12)
         self.roster_tab = ttk.Frame(self.tabs, padding=10)
         self.help_tab = ttk.Frame(self.tabs, padding=14)
         self.tabs.add(self.editor_tab, text="Fighter Editor")
         self.tabs.add(self.transform_tab, text="Transformation Lab")
+        self.tabs.add(self.move_lab_tab, text="MUGEN Move Lab")
         self.tabs.add(self.roster_tab, text="Battle Roster")
         self.tabs.add(self.help_tab, text="Quick Guide")
         self._build_editor()
         self._build_transform_tab()
+        self._build_move_lab_tab()
         self._build_roster_tab()
         self._build_help_tab()
 
@@ -779,6 +794,133 @@ class StudioApp:
 
         self.refresh_transform_lab_choices()
 
+    def _build_move_lab_tab(self):
+        # Visual browser for MUGEN AIR actions and detected moves.
+        self.move_lab_tab.columnconfigure(0, weight=3)
+        self.move_lab_tab.columnconfigure(1, weight=2)
+        self.move_lab_tab.rowconfigure(2, weight=1)
+
+        title = ttk.LabelFrame(self.move_lab_tab, text="MUGEN Move Lab", padding=10)
+        title.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        title.columnconfigure(1, weight=1)
+        ttk.Label(
+            title,
+            text="Browse every exported AIR animation, preview it, and map it to movement, reactions, victory states, or attacks.",
+            font=("Segoe UI", 10, "bold"),
+        ).grid(row=0, column=0, columnspan=4, sticky="w")
+        ttk.Label(title, textvariable=self.move_mapping_var, foreground="#555").grid(
+            row=1, column=0, columnspan=4, sticky="w", pady=(5, 0)
+        )
+
+        filters = ttk.Frame(self.move_lab_tab)
+        filters.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        filters.columnconfigure(1, weight=1)
+        ttk.Label(filters, text="Search").grid(row=0, column=0, sticky="w")
+        move_search = ttk.Entry(filters, textvariable=self.move_search_var)
+        move_search.grid(row=0, column=1, sticky="ew", padx=(6, 10))
+        move_search.bind("<KeyRelease>", lambda e: self.refresh_move_lab())
+        ttk.Label(filters, text="Type").grid(row=0, column=2)
+        move_type = ttk.Combobox(
+            filters, textvariable=self.move_type_var,
+            values=["All types", "melee", "projectile", "beam"],
+            state="readonly", width=12,
+        )
+        move_type.grid(row=0, column=3, padx=(6, 10))
+        move_type.bind("<<ComboboxSelected>>", lambda e: self.refresh_move_lab())
+        ttk.Button(filters, text="Refresh List", command=self.refresh_move_lab).grid(row=0, column=4)
+        ttk.Button(filters, text="↻ RESCAN UNLOCKED MUGEN", command=self.rescan_mugen_current).grid(
+            row=0, column=5, padx=(8, 0)
+        )
+
+        list_box = ttk.LabelFrame(self.move_lab_tab, text="Detected / Rendered MUGEN Animations", padding=8)
+        list_box.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
+        list_box.columnconfigure(0, weight=1)
+        list_box.rowconfigure(0, weight=1)
+        cols = ("action", "name", "type", "score", "state", "source")
+        self.move_tree = ttk.Treeview(list_box, columns=cols, show="headings", height=22)
+        headings = {
+            "action": "AIR", "name": "Move / Action", "type": "Type",
+            "score": "Score", "state": "State", "source": "Detected From",
+        }
+        widths = {"action": 60, "name": 210, "type": 82, "score": 55, "state": 65, "source": 120}
+        for c in cols:
+            self.move_tree.heading(c, text=headings[c])
+            self.move_tree.column(c, width=widths[c], anchor="w" if c in ("name", "source") else "center")
+        self.move_tree.grid(row=0, column=0, sticky="nsew")
+        move_sb = ttk.Scrollbar(list_box, orient="vertical", command=self.move_tree.yview)
+        move_sb.grid(row=0, column=1, sticky="ns")
+        self.move_tree.configure(yscrollcommand=move_sb.set)
+        self.move_tree.bind("<Double-1>", lambda e: self.preview_move_lab_selected())
+        self.move_tree.bind("<<TreeviewSelect>>", lambda e: self._update_move_lab_selected_status())
+
+        right = ttk.Frame(self.move_lab_tab)
+        right.grid(row=2, column=1, sticky="nsew")
+        right.columnconfigure(0, weight=1)
+
+        preview = ttk.LabelFrame(right, text="Move Preview", padding=8)
+        preview.grid(row=0, column=0, sticky="ew")
+        self.move_preview_label = ttk.Label(
+            preview, text="Select a move and click Preview", anchor="center", width=30
+        )
+        self.move_preview_label.pack(fill="both", expand=True, ipady=70)
+        ttk.Button(preview, text="▶ Preview Selected", command=self.preview_move_lab_selected).pack(
+            fill="x", pady=(6, 0)
+        )
+
+        assign = ttk.LabelFrame(right, text="Assign Selected Animation / Move", padding=8)
+        assign.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(
+            assign,
+            text="Every rendered AIR action can be used for any fighter animation. "
+                 "Attack buttons also create/update combat move data; the general mapper changes animation only.",
+            wraplength=330, foreground="#555",
+        ).pack(anchor="w", pady=(0, 6))
+
+        ttk.Label(assign, text="Quick attack assignment", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        buttons = ttk.Frame(assign)
+        buttons.pack(fill="x", pady=(2, 8))
+        for i in range(1, 5):
+            ttk.Button(
+                buttons, text=f"Attack {i}",
+                command=lambda n=i: self.assign_move_lab_to_slot(f"attack_{n}")
+            ).pack(side="left", expand=True, fill="x", padx=2)
+
+        ttk.Separator(assign, orient="horizontal").pack(fill="x", pady=4)
+        ttk.Label(assign, text="Map selected AIR action to any animation slot",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(2, 3))
+        general = ttk.Frame(assign)
+        general.pack(fill="x")
+        self.move_anim_slot_combo = ttk.Combobox(
+            general,
+            textvariable=self.move_anim_slot_var,
+            values=[slot for slot, _label in ANIMATION_SLOTS],
+            state="readonly",
+            width=16,
+        )
+        self.move_anim_slot_combo.pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            general, text="MAP ANIMATION",
+            command=self.assign_move_lab_animation_only
+        ).pack(side="left", padx=(6, 0))
+
+        ttk.Checkbutton(
+            assign,
+            text="Lock mapping after assigning (Attack buttons lock both animation + attack)",
+            variable=self.move_lock_on_assign_var
+        ).pack(anchor="w", pady=(8, 0))
+
+        tools = ttk.LabelFrame(right, text="Move Lab Tools", padding=8)
+        tools.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(tools, text="Open MUGEN Action Folder", command=self.open_mugen_action_folder).pack(
+            fill="x", pady=2
+        )
+        ttk.Button(tools, text="Go to Fighter Editor", command=lambda: self.tabs.select(self.editor_tab)).pack(
+            fill="x", pady=2
+        )
+        ttk.Label(tools, textvariable=self.move_status_var, wraplength=330, foreground="#555").pack(
+            anchor="w", pady=(8, 0)
+        )
+
     def _build_roster_tab(self):
         self.roster_tab.columnconfigure(0, weight=1)
         self.roster_tab.rowconfigure(3, weight=1)
@@ -850,7 +992,7 @@ class StudioApp:
 
     def _build_help_tab(self):
         text = (
-            "RUMBLE STUDIO v0.13 — QUICK GUIDE\n\n"
+            "RUMBLE STUDIO v0.14 — QUICK GUIDE\n\n"
             "CLEAN KOs\n"
             "Defeated fighters show their KO animation briefly, fade, then disappear from the arena. "
             "They stay crossed out in the HUD/results, so large rumbles stay readable without corpse piles.\n\n"
@@ -865,6 +1007,10 @@ class StudioApp:
             "Import one character as before, choose ⚡ BATCH MUGEN FILES to select many .def/.zip/.rar/.7z files at once, "
             "or 📁 SCAN MUGEN FOLDER to point Studio at a collection/characters folder. Batch mode can use Quick import "
             "(only core mapped animations) or Full import (preserve hundreds of AIR actions for manual remapping).\n\n"
+            "MUGEN MOVE LAB\n"
+            "Choose a MUGEN fighter and open MUGEN Move Lab. Search or filter every exported AIR action, double-click/Preview to watch one, "
+            "then either map it to ANY fighter animation slot (Idle, Walk, Run, Hit, Guard, KO, Jump, Happy, Cheer, Victory, etc.) or use the Attack 1-4 buttons to also create/update combat move data. Lock-on-assign keeps deliberate choices through future rescans. "
+            "Older v0.13 imports can still browse generic Action numbers; run ↻ RESCAN UNLOCKED MUGEN once to build the richer v0.14 move index with names, types, StateDefs and detection scores.\n\n"
             "FIGHTER MAINTENANCE\n"
             "RESET TO SAVED discards unsaved edits and reloads the last fighter.json. DELETE FIGHTER permanently removes the fighter, removes it from the roster, and cleans transformation links that point to it. "
             "For MUGEN fighters, use the Lock checkboxes beside animation mappings and Lock / Unlock on attack rows to protect mappings you like. ↻ RESCAN UNLOCKED MUGEN rereads DEF/AIR/CMD/CNS files but only replaces unlocked mappings; locked paths/attacks stay fixed.\n\n"
@@ -944,10 +1090,12 @@ class StudioApp:
         if not sel:
             return
         pack = self.library.pack_names[sel[0]]
-        stay_in_lab = hasattr(self, "transform_tab") and self.tabs.select() == str(self.transform_tab)
-        self.load_fighter(ASSETS / pack, select_editor=not stay_in_lab)
-        if stay_in_lab:
-            # v0.13: library clicks become a fast way to choose a new line/root while
+        selected_tab = self.tabs.select()
+        stay_transform_lab = hasattr(self, "transform_tab") and selected_tab == str(self.transform_tab)
+        stay_move_lab = hasattr(self, "move_lab_tab") and selected_tab == str(self.move_lab_tab)
+        self.load_fighter(ASSETS / pack, select_editor=not (stay_transform_lab or stay_move_lab))
+        if stay_transform_lab:
+            # Library clicks become a fast way to choose a new line/root while
             # staying inside Transformation Lab instead of kicking the user back to Editor.
             self.transform_lab_root_var.set(pack)
             self.transform_lab_source_var.set(pack)
@@ -956,6 +1104,9 @@ class StudioApp:
             self.refresh_transform_line_tree()
             self.refresh_transformation_tree()
             self.tabs.select(self.transform_tab)
+        elif stay_move_lab:
+            self.refresh_move_lab()
+            self.tabs.select(self.move_lab_tab)
 
     def new_fighter(self):
         self.current_folder = None
@@ -1076,7 +1227,7 @@ class StudioApp:
                 failed.append((source, str(e)))
 
         lines = [
-            "RUMBLE STUDIO v0.13 — MUGEN BATCH IMPORT REPORT",
+            "RUMBLE STUDIO v0.14 — MUGEN BATCH IMPORT REPORT",
             "=================================================",
             f"Mode: {mode}",
             f"Requested sources: {len(sources)}",
@@ -1325,6 +1476,7 @@ class StudioApp:
 
     def rescan_mugen_current(self):
         """Reread MUGEN files, preserving every mapping the user explicitly locked."""
+        stay_move_lab = hasattr(self, "move_lab_tab") and self.tabs.select() == str(self.move_lab_tab)
         if not self.current_folder or not (self.current_folder / "fighter.json").exists():
             messagebox.showinfo("Rescan MUGEN", "Choose a saved MUGEN fighter first.", parent=self.root)
             return
@@ -1353,7 +1505,7 @@ class StudioApp:
         if not messagebox.askyesno(
             "Rescan unlocked MUGEN mappings",
             f"Rescan {name} from:\n{source}\n\n"
-            "v0.13 rereads DEF + AIR + CMD + CNS/ST files and searches again for better mappings.\n\n"
+            "v0.14 rereads DEF + AIR + CMD + CNS/ST files and searches again for better mappings.\n\n"
             f"{lock_summary}\n\n"
             "Saved stats, stage/form, facing, AI, scale, transformations, and all locked mappings are preserved.\n\n"
             "Unsaved edits other than the lock checkboxes are not preserved. Continue?",
@@ -1368,9 +1520,12 @@ class StudioApp:
                 export_all_actions=True, existing_target=self.current_folder, preserve_existing=True,
                 locked_animation_slots=set(locked_anims), locked_attack_slots=set(locked_attacks),
             )
-            self.load_fighter(folder)
+            self.load_fighter(folder, select_editor=not stay_move_lab)
             self.refresh_library(select=folder.name)
             self.refresh_roster()
+            if stay_move_lab:
+                self.refresh_move_lab()
+                self.tabs.select(self.move_lab_tab)
             candidates = report.get("deep_attack_candidates", [])
             picks = report.get("chosen_moves", [])
             refreshed = report.get("refreshed_attack_slots", [])
@@ -1440,6 +1595,8 @@ class StudioApp:
             self.transform_lab_rules[folder.name] = [dict(a) for a in self.transformation_data]
         self.refresh_attack_tree()
         self.refresh_transform_lab_choices()
+        if hasattr(self, "move_tree"):
+            self.refresh_move_lab()
         if select_editor:
             self.tabs.select(self.editor_tab)
         self.set_status(f"Loaded {self.name_var.get()} for editing.")
@@ -1544,7 +1701,349 @@ class StudioApp:
             self.attack_tree.insert("", "end", iid=str(i), values=vals)
 
     # ------------------------------------------------------------------
-    # MUGEN mapping locks (v0.13)
+    # MUGEN Move Lab (v0.14)
+    # ------------------------------------------------------------------
+    def _move_lab_index(self) -> List[dict]:
+        if not self.current_folder:
+            return []
+        index_path = self.current_folder / "MUGEN_MOVE_INDEX.json"
+        data = read_json(index_path, {})
+        moves = data.get("moves", []) if isinstance(data, dict) else []
+        if isinstance(moves, list) and moves:
+            return [dict(x) for x in moves if isinstance(x, dict)]
+
+        # Backward-compatible fallback for MUGEN fighters imported before v0.14.
+        action_dir = self.current_folder / "mugen_actions"
+        fallback = []
+        if action_dir.exists():
+            for p in sorted(action_dir.glob("action_*.gif")):
+                m = re.match(r"action_(-?\d+)\.gif$", p.name, re.I)
+                if not m:
+                    continue
+                action = int(m.group(1))
+                fallback.append({
+                    "action": action,
+                    "name": f"Action {action}",
+                    "type": "melee",
+                    "score": 0,
+                    "state": None,
+                    "source": "Rendered AIR action",
+                    "comment": "",
+                    "gif": str(p.relative_to(self.current_folder)).replace("\\", "/"),
+                })
+        return fallback
+
+    def refresh_move_lab(self):
+        if not hasattr(self, "move_tree"):
+            return
+        for item in self.move_tree.get_children():
+            self.move_tree.delete(item)
+        self.move_items = {}
+
+        if not self.current_folder or not (self.current_folder / "fighter.json").exists():
+            self.move_status_var.set("Choose a saved MUGEN fighter first.")
+            self.move_mapping_var.set("No MUGEN fighter selected.")
+            return
+
+        meta = read_json(self.current_folder / "fighter.json", {})
+        source = meta.get("source", {}) if isinstance(meta.get("source", {}), dict) else {}
+        if str(source.get("format", "")).upper() != "MUGEN":
+            self.move_status_var.set("This fighter was not imported from MUGEN.")
+            self.move_mapping_var.set(f"{meta.get('name', self.current_folder.name)} is not a MUGEN fighter.")
+            return
+
+        moves = self._move_lab_index()
+        search = self.move_search_var.get().strip().lower()
+        type_filter = self.move_type_var.get().strip().lower()
+        shown = 0
+        for move in moves:
+            kind = str(move.get("type", "melee")).lower()
+            blob = " ".join([
+                str(move.get("action", "")), str(move.get("name", "")),
+                str(move.get("source", "")), str(move.get("comment", "")),
+                str(move.get("state", "")),
+            ]).lower()
+            if search and search not in blob:
+                continue
+            if type_filter not in ("", "all types") and kind != type_filter:
+                continue
+            iid = f"move_{shown}"
+            self.move_items[iid] = move
+            self.move_tree.insert("", "end", iid=iid, values=(
+                move.get("action", ""),
+                move.get("name", f"Action {move.get('action', '?')}"),
+                kind,
+                move.get("score", 0),
+                "" if move.get("state") is None else move.get("state"),
+                move.get("source", "AIR"),
+            ))
+            shown += 1
+
+        mapped = []
+        for i in range(1, 5):
+            slot = f"attack_{i}"
+            attack = next((a for a in self.attack_data if str(a.get("animation", "")) == slot), None)
+            action = attack.get("mugen_action") if attack else None
+            lock = " 🔒" if slot in self.attack_lock_slots else ""
+            mapped.append(f"A{i}: {attack.get('name', '—') if attack else '—'}"
+                          + (f" [AIR {action}]" if action is not None else "") + lock)
+        self.move_mapping_var.set("   |   ".join(mapped))
+
+        has_rich_index = (self.current_folder / "MUGEN_MOVE_INDEX.json").exists()
+        if not moves:
+            self.move_status_var.set("No rendered MUGEN AIR actions were found for this fighter.")
+        elif not has_rich_index:
+            self.move_status_var.set(
+                f"Showing {shown} rendered AIR actions. Run RESCAN UNLOCKED MUGEN once to build rich move names/types."
+            )
+        else:
+            self.move_status_var.set(f"Showing {shown} of {len(moves)} indexed MUGEN actions.")
+
+    def _selected_move_lab_move(self) -> Optional[dict]:
+        if not hasattr(self, "move_tree"):
+            return None
+        sel = self.move_tree.selection()
+        if not sel:
+            messagebox.showinfo("MUGEN Move Lab", "Choose a move/action first.", parent=self.root)
+            return None
+        return self.move_items.get(sel[0])
+
+    def _update_move_lab_selected_status(self):
+        move = self._selected_move_lab_move_silent()
+        if not move:
+            return
+        self.move_status_var.set(
+            f"Selected AIR {move.get('action')}: {move.get('name', 'Move')} • "
+            f"{move.get('type', 'melee')} • detected from {move.get('source', 'AIR')}"
+        )
+
+    def _selected_move_lab_move_silent(self) -> Optional[dict]:
+        if not hasattr(self, "move_tree"):
+            return None
+        sel = self.move_tree.selection()
+        return self.move_items.get(sel[0]) if sel else None
+
+    def _stop_move_preview(self):
+        if self.move_preview_job:
+            try:
+                self.root.after_cancel(self.move_preview_job)
+            except Exception:
+                pass
+            self.move_preview_job = None
+        self.move_preview_anim = None
+
+    def preview_move_lab_selected(self):
+        move = self._selected_move_lab_move()
+        if not move or not self.current_folder:
+            return
+        rel = str(move.get("gif", "") or "")
+        path = self.current_folder / rel
+        if not path.exists():
+            messagebox.showerror(
+                "MUGEN Move Lab",
+                f"The rendered GIF for AIR {move.get('action')} is missing.\n\n"
+                "Use RESCAN UNLOCKED MUGEN to rebuild the action library.",
+                parent=self.root,
+            )
+            return
+        try:
+            im = Image.open(path)
+            frames, durations = [], []
+            for frame in ImageSequence.Iterator(im):
+                fr = frame.convert("RGBA")
+                scale = min(5.0, 230 / max(1, fr.width), 230 / max(1, fr.height))
+                if scale > 1:
+                    fr = fr.resize(
+                        (max(1, int(fr.width * scale)), max(1, int(fr.height * scale))),
+                        Image.Resampling.NEAREST,
+                    )
+                frames.append(fr)
+                durations.append(max(60, int(frame.info.get("duration", im.info.get("duration", 100)))))
+            if not frames:
+                frames = [im.convert("RGBA")]
+                durations = [120]
+            self._stop_move_preview()
+            self.move_preview_anim = PreviewAnimation(frames, durations)
+            self._move_preview_tick()
+            self.move_status_var.set(
+                f"Previewing AIR {move.get('action')}: {move.get('name', 'Move')}"
+            )
+        except Exception as e:
+            messagebox.showerror("MUGEN Move Lab", f"Could not preview this action:\n{e}", parent=self.root)
+
+    def _move_preview_tick(self):
+        if not self.move_preview_anim:
+            return
+        pa = self.move_preview_anim
+        fr = pa.frames[pa.index]
+        bg = Image.new("RGBA", (330, 275), (32, 38, 48, 255))
+        x = (330 - fr.width) // 2
+        y = (275 - fr.height) // 2
+        bg.alpha_composite(fr, (x, y))
+        photo = ImageTk.PhotoImage(bg)
+        self.move_preview_label.configure(image=photo, text="")
+        self.move_preview_label.image = photo
+        delay = pa.durations[pa.index]
+        pa.index = (pa.index + 1) % len(pa.frames)
+        self.move_preview_job = self.root.after(delay, self._move_preview_tick)
+
+    def _move_attack_defaults(self, move: dict, slot: str) -> dict:
+        action = int(move.get("action", 0) or 0)
+        kind = str(move.get("type", "melee") or "melee")
+        tier = 0 if action < 1000 else 1 if action < 3000 else 2
+        existing = next((dict(a) for a in self.attack_data if str(a.get("animation", "")) == slot), None)
+        if existing:
+            attack = existing
+        else:
+            if kind == "beam":
+                damage, rng, cooldown, knockback = 18 + tier * 5, 430, 1.45 + tier * 0.15, 14 + tier * 3
+            elif kind == "projectile":
+                damage, rng, cooldown, knockback = 16 + tier * 4, 340, 1.25 + tier * 0.14, 13 + tier * 2
+            else:
+                damage, rng, cooldown, knockback = 12 + tier * 4, 68 if tier else 62, 0.95 + tier * 0.18, 12 + tier * 3
+            attack = {
+                "damage": round(damage, 2), "range": round(rng, 2),
+                "cooldown": round(cooldown, 2), "knockback": round(knockback, 2),
+                "effect_color": "#ffd250", "weight": 1.0,
+            }
+        attack.update({
+            "name": str(move.get("name") or f"MUGEN Action {action}")[:48],
+            "type": kind if kind in ATTACK_TYPES else "melee",
+            "animation": slot,
+            "mugen_action": action,
+            "mugen_state": move.get("state"),
+            "mugen_detection": move.get("source", "Move Lab"),
+        })
+        return attack
+
+    def assign_move_lab_animation_only(self):
+        # Map the selected AIR action to any Rumble animation slot without
+        # changing combat damage/range/cooldown data.
+        move = self._selected_move_lab_move()
+        if not move or not self.current_folder:
+            return
+
+        slot = self.move_anim_slot_var.get().strip()
+        valid_slots = {key for key, _label in ANIMATION_SLOTS}
+        if slot not in valid_slots:
+            messagebox.showerror("MUGEN Move Lab", "Choose a valid animation slot.", parent=self.root)
+            return
+
+        rel = str(move.get("gif", "") or "")
+        path = self.current_folder / rel
+        if not path.exists():
+            messagebox.showerror(
+                "MUGEN Move Lab",
+                "That rendered action GIF is missing. Rescan the MUGEN fighter to rebuild it.",
+                parent=self.root,
+            )
+            return
+
+        self.anim_paths[slot].set(str(path))
+        if self.move_lock_on_assign_var.get() and slot in self.anim_lock_vars:
+            self.anim_lock_vars[slot].set(True)
+
+        fighter_path = self.current_folder / "fighter.json"
+        meta = read_json(fighter_path, {})
+        animations = meta.get("animations", {}) if isinstance(meta.get("animations", {}), dict) else {}
+        animations[slot] = rel.replace("\\", "/")
+        meta["animations"] = animations
+
+        locks = meta.get("mugen_locks", {}) if isinstance(meta.get("mugen_locks", {}), dict) else {}
+        anim_locks = {str(x) for x in locks.get("animations", [])}
+        if self.move_lock_on_assign_var.get():
+            anim_locks.add(slot)
+        locks["animations"] = sorted(anim_locks)
+        locks["attacks"] = sorted({str(x) for x in locks.get("attacks", [])})
+        meta["mugen_locks"] = locks
+        fighter_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+        self.refresh_move_lab()
+        self.set_status(
+            f"MUGEN Move Lab: AIR {move.get('action')} mapped to {slot}"
+            + (" and locked." if self.move_lock_on_assign_var.get() else ".")
+        )
+
+    def assign_move_lab_to_slot(self, slot: str):
+        move = self._selected_move_lab_move()
+        if not move or not self.current_folder:
+            return
+        rel = str(move.get("gif", "") or "")
+        path = self.current_folder / rel
+        if not path.exists():
+            messagebox.showerror("MUGEN Move Lab", "That rendered action GIF is missing.", parent=self.root)
+            return
+
+        attack = self._move_attack_defaults(move, slot)
+        replaced = False
+        for i, old in enumerate(self.attack_data):
+            if str(old.get("animation", "")) == slot:
+                self.attack_data[i] = attack
+                replaced = True
+                break
+        if not replaced:
+            self.attack_data.append(attack)
+        self.anim_paths[slot].set(str(path))
+
+        if self.move_lock_on_assign_var.get():
+            if slot in self.anim_lock_vars:
+                self.anim_lock_vars[slot].set(True)
+            self.attack_lock_slots.add(slot)
+
+        fighter_path = self.current_folder / "fighter.json"
+        meta = read_json(fighter_path, {})
+        animations = meta.get("animations", {}) if isinstance(meta.get("animations", {}), dict) else {}
+        animations[slot] = rel.replace("\\", "/")
+        meta["animations"] = animations
+
+        attacks = [dict(a) for a in meta.get("attacks", []) if isinstance(a, dict)]
+        disk_replaced = False
+        for i, old in enumerate(attacks):
+            if str(old.get("animation", "")) == slot:
+                attacks[i] = dict(attack)
+                disk_replaced = True
+                break
+        if not disk_replaced:
+            attacks.append(dict(attack))
+        meta["attacks"] = attacks
+
+        locks = meta.get("mugen_locks", {}) if isinstance(meta.get("mugen_locks", {}), dict) else {}
+        anim_locks = {str(x) for x in locks.get("animations", [])}
+        attack_locks = {str(x) for x in locks.get("attacks", [])}
+        if self.move_lock_on_assign_var.get():
+            anim_locks.add(slot)
+            attack_locks.add(slot)
+        locks["animations"] = sorted(anim_locks)
+        locks["attacks"] = sorted(attack_locks)
+        meta["mugen_locks"] = locks
+        fighter_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+        self.refresh_attack_tree()
+        self.refresh_move_lab()
+        self.set_status(
+            f"MUGEN Move Lab: AIR {move.get('action')} assigned to {slot}"
+            + (" and locked." if self.move_lock_on_assign_var.get() else ".")
+        )
+
+    def open_mugen_action_folder(self):
+        if not self.current_folder:
+            return
+        folder = self.current_folder / "mugen_actions"
+        if not folder.exists():
+            messagebox.showinfo("MUGEN Move Lab", "This fighter has no mugen_actions folder.", parent=self.root)
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(folder)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(folder)])
+            else:
+                subprocess.Popen(["xdg-open", str(folder)])
+        except Exception as e:
+            messagebox.showerror("Open folder", str(e), parent=self.root)
+
+    # ------------------------------------------------------------------
+    # MUGEN mapping locks (v0.14)
     # ------------------------------------------------------------------
     def _current_mugen_locks(self) -> dict:
         # Locking an attack also protects the animation slot it uses, so a
@@ -1616,7 +2115,7 @@ class StudioApp:
         self.set_status("All MUGEN mapping locks cleared.")
 
     # ------------------------------------------------------------------
-    # Transformation Lab (v0.13)
+    # Transformation Lab (v0.14)
     # ------------------------------------------------------------------
     def _lab_rules(self, pack: str) -> List[dict]:
         pack = str(pack or "").strip()

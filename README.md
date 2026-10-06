@@ -15,6 +15,7 @@ It creates autonomous battles between sprite-based fighters and renders the resu
 - MUGEN character import
 - Batch MUGEN import
 - Animation and attack mapping locks
+- MUGEN Move Lab with animated previews, full AIR-action animation mapping, and direct attack-slot assignment
 - Transformation trees
 - Random and multiverse roster selection
 - Vertical video rendering
@@ -27,6 +28,6 @@ Personal sprite collections, MUGEN characters, imported fighters, and rendered v
 
 ## Development Status
 
-Current baseline: v0.13
+Current baseline: v0.14
 
 Rumble Studio is under active development.
