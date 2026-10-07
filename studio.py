@@ -526,7 +526,7 @@ class TransformationDialog(tk.Toplevel):
 class StudioApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Rumble Studio v0.16.1 — FFBE Sprite Import")
+        self.root.title("Rumble Studio v0.16.2 — FFBE Animation Repair")
         self.root.geometry("1220x830")
         self.root.minsize(1050, 720)
 

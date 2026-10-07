@@ -9,7 +9,7 @@ such as unit_idle_..., unit_atk_..., unit_limit_atk_..., unit_dead_..., etc.
 The importer:
 - scans a ZIP or extracted folder for character variants
 - splits each FFBE PNG sheet into animation frames
-- converts those frames to transparent animated GIFs
+- converts those frames to lossless transparent animated PNGs (APNG)
 - maps the resulting animations into Rumble Studio slots
 - preserves every source PNG inside the fighter folder for later remapping
 """
@@ -276,7 +276,11 @@ def _infer_rows(im: Image.Image, min_cell_h: int = 48, max_rows: int = 80) -> in
 
     # Exact/near-exact transparent boundaries are strong evidence. Prefer more
     # rows among those candidates because 1,2,4,... can all be trivially blank.
-    near_zero = [x for x in candidates if x[0] <= 0.0002]
+    # Effects such as sword trails, spell rays, and Limit Burst flashes can
+    # cross a nominal row boundary by a few pixels. A slightly tolerant gutter
+    # score still cleanly separates real FFBE rows while avoiding the old failure
+    # mode where a long animation became three giant vertical strips.
+    near_zero = [x for x in candidates if x[0] <= 0.0035]
     if near_zero:
         return max(near_zero, key=lambda x: x[1])[1]
 
@@ -344,21 +348,27 @@ def _sheet_frames(blob: bytes, action: str) -> List[Image.Image]:
     return frames
 
 
-def _save_gif(blob: bytes, action: str, path: Path) -> int:
+def _save_animation(blob: bytes, action: str, path: Path) -> int:
+    """Save FFBE animation as APNG so per-frame transparency stays lossless."""
     frames = _sheet_frames(blob, action)
     duration = ACTION_DURATION_MS.get(action, 90)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     first, rest = frames[0], frames[1:]
-    first.save(
-        path,
-        save_all=bool(rest),
-        append_images=rest,
-        duration=duration,
-        loop=0,
-        disposal=2,
-        transparency=0,
-    )
+    if rest:
+        first.save(
+            path,
+            format="PNG",
+            save_all=True,
+            append_images=rest,
+            duration=duration,
+            loop=0,
+            disposal=1,
+            blend=0,
+            optimize=False,
+        )
+    else:
+        first.save(path, format="PNG", optimize=False)
     return len(frames)
 
 
@@ -451,10 +461,16 @@ def import_ffbe_variant(
     for action, blob in sorted(variant.files.items()):
         source_png = src_dir / f"{action}.png"
         source_png.write_bytes(blob)
-        gif_name = f"ffbe_{action}.gif"
-        count = _save_gif(blob, action, target / gif_name)
-        generated[action] = gif_name
+        # v0.16.2: APNG avoids GIF palette/disposal artifacts that could turn
+        # transparent attack frames into large black rectangles.
+        anim_name = f"ffbe_{action}.png"
+        count = _save_animation(blob, action, target / anim_name)
+        generated[action] = anim_name
         frame_counts[action] = count
+
+        # Safe cleanup of the older generated FFBE GIF for this same action.
+        # Original source sheets remain preserved in ffbe_source/.
+        (target / f"ffbe_{action}.gif").unlink(missing_ok=True)
 
     animations: Dict[str, str] = {}
     for slot, source_action in SLOT_SOURCE.items():

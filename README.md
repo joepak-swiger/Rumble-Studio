@@ -32,7 +32,7 @@ Personal sprite collections, MUGEN characters, imported fighters, and rendered v
 
 ## Development Status
 
-Current baseline: v0.16.1
+Current baseline: v0.16.2
 
 Rumble Studio is under active development.
 

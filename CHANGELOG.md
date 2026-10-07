@@ -1,5 +1,15 @@
 # Rumble Studio Changelog
 
+## v0.16.2
+
+### FFBE Animation Repair
+
+- Fixed long FFBE attack and Limit Burst sheets being split into too few giant frames when visual effects crossed row boundaries.
+- Replaced generated FFBE GIF animations with animated PNG (APNG) to preserve true alpha transparency.
+- Fixed black rectangular backgrounds that could appear during later frames of FFBE attacks and Limit Bursts.
+- Re-importing an existing FFBE fighter refreshes its generated animations while preserving its existing stats, AI, attacks, and transformations.
+
+
 ## v0.16.1
 
 ### Final Fantasy Brave Exvius Sprite Import
