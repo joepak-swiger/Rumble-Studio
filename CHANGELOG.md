@@ -1,5 +1,18 @@
 # Rumble Studio Changelog
 
+## v0.16.1
+
+### Final Fantasy Brave Exvius Sprite Import
+
+- Added direct import for The Spriters Resource FFBE character ZIPs.
+- Detects multiple rarity/form folders and lets the user choose one, several, or ALL.
+- Splits FFBE three-column PNG sprite sheets into transparent animated GIFs automatically.
+- Auto-maps idle, movement, hit, guard, KO, attack, magic, Limit Burst, entrance, and victory animations where present.
+- Preserves all recognized source PNG sheets inside each local fighter folder for later remapping.
+- Creates placeholder Attack, Magic, Limit Burst, and optional Special move definitions that can be edited in Fighter Editor.
+- Defaults FFBE fighters to the Final Fantasy franchise and a 1.6 sprite scale.
+
+
 ## v0.16
 - Fixed Battle Presentation Director crash caused by missing Python `re` import in special-move classification.
 

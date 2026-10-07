@@ -12,6 +12,7 @@ It creates autonomous battles between sprite-based fighters and renders the resu
 - HP, knockouts, eliminations, and winner detection
 - Fighter AI personalities
 - Digimon World Championship sprite import
+- Final Fantasy Brave Exvius sprite ZIP import with automatic sheet slicing and animation mapping
 - MUGEN character import
 - Batch MUGEN import
 - Animation and attack mapping locks
@@ -31,7 +32,7 @@ Personal sprite collections, MUGEN characters, imported fighters, and rendered v
 
 ## Development Status
 
-Current baseline: v0.16
+Current baseline: v0.16.1
 
 Rumble Studio is under active development.
 

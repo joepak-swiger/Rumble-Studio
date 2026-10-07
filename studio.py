@@ -17,6 +17,7 @@ from PIL import Image, ImageSequence, ImageTk
 
 from mugen_import import MugenImportError, import_mugen_character
 from dwc_import import DWCImportError, import_dwc_source
+from ffbe_import import FFBEImportError, scan_ffbe_source, import_ffbe_source
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets" / "fighters"
@@ -525,7 +526,7 @@ class TransformationDialog(tk.Toplevel):
 class StudioApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Rumble Studio v0.16 — Battle Presentation Director")
+        self.root.title("Rumble Studio v0.16.1 — FFBE Sprite Import")
         self.root.geometry("1220x830")
         self.root.minsize(1050, 720)
 
@@ -670,8 +671,10 @@ class StudioApp:
         ttk.Button(side, text="📁 SCAN MUGEN FOLDER", command=self.import_mugen_batch_folder_gui).grid(row=9, column=0, columnspan=2, sticky="ew", pady=3)
         dwc_btn = ttk.Button(side, text="🦖 IMPORT DWC SPRITE SET", command=self.import_dwc_gui)
         dwc_btn.grid(row=10, column=0, columnspan=2, sticky="ew", pady=3)
-        ttk.Button(side, text="Duplicate Fighter", command=self.duplicate_fighter).grid(row=11, column=0, columnspan=2, sticky="ew", pady=3)
-        ttk.Button(side, text="Open Fighter Folder", command=self.open_fighter_folder).grid(row=12, column=0, columnspan=2, sticky="ew", pady=3)
+        ffbe_btn = ttk.Button(side, text="⚔ IMPORT FFBE SPRITE ZIP", command=self.import_ffbe_gui)
+        ffbe_btn.grid(row=11, column=0, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(side, text="Duplicate Fighter", command=self.duplicate_fighter).grid(row=12, column=0, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(side, text="Open Fighter Folder", command=self.open_fighter_folder).grid(row=13, column=0, columnspan=2, sticky="ew", pady=3)
 
         # Main tabs
         self.tabs = ttk.Notebook(outer)
@@ -1658,6 +1661,128 @@ class StudioApp:
         except Exception as e:
             self.set_status("DWC import failed.")
             messagebox.showerror("DWC import", f"Unexpected DWC import error:\n{e}", parent=self.root)
+
+    def import_ffbe_gui(self):
+        source = filedialog.askopenfilename(
+            title="Import Final Fantasy Brave Exvius sprite ZIP",
+            filetypes=[
+                ("FFBE Spriters Resource ZIP", "*.zip"),
+                ("ZIP archive", "*.zip"),
+                ("All files", "*.*"),
+            ],
+            parent=self.root,
+        )
+        if not source:
+            return
+
+        source_path = Path(source)
+        self.set_status(f"Scanning FFBE sprite sheets from {source_path.name}…")
+        self.root.update_idletasks()
+
+        try:
+            variants = scan_ffbe_source(source_path)
+        except FFBEImportError as e:
+            self.set_status("FFBE scan stopped.")
+            messagebox.showerror("FFBE import", str(e), parent=self.root)
+            return
+        except Exception as e:
+            self.set_status("FFBE scan failed.")
+            messagebox.showerror("FFBE import", f"Unexpected FFBE scan error:\n{e}", parent=self.root)
+            return
+
+        variant_indexes = None
+        if len(variants) > 1:
+            lines = []
+            for i, variant in enumerate(variants, start=1):
+                actions = len(variant.files)
+                lines.append(f"{i}. {variant.label}  [{actions} action sheets]")
+            prompt = (
+                f"Found {len(variants)} FFBE sprite variants in this ZIP.\n\n"
+                + "\n".join(lines)
+                + "\n\nEnter one number, comma-separated numbers, or ALL.\n"
+                  "Tip: later/higher-rarity folders are often near the bottom."
+            )
+            answer = simpledialog.askstring(
+                "FFBE Variant",
+                prompt,
+                initialvalue=str(len(variants)),
+                parent=self.root,
+            )
+            if answer is None:
+                self.set_status("FFBE import cancelled.")
+                return
+
+            answer = answer.strip()
+            if answer.lower() == "all":
+                variant_indexes = list(range(len(variants)))
+            else:
+                try:
+                    nums = [int(x.strip()) for x in answer.split(",") if x.strip()]
+                    if not nums:
+                        raise ValueError
+                    variant_indexes = []
+                    for n in nums:
+                        if n < 1 or n > len(variants):
+                            raise ValueError
+                        idx = n - 1
+                        if idx not in variant_indexes:
+                            variant_indexes.append(idx)
+                except ValueError:
+                    messagebox.showerror(
+                        "FFBE Variant",
+                        f"Enter a number from 1 to {len(variants)}, comma-separated numbers, or ALL.",
+                        parent=self.root,
+                    )
+                    self.set_status("FFBE import cancelled.")
+                    return
+
+        self.set_status(f"Converting FFBE sprite sheets from {source_path.name}…")
+        self.root.update_idletasks()
+
+        try:
+            report = import_ffbe_source(
+                source_path,
+                ASSETS,
+                variant_indexes=variant_indexes,
+                overwrite=False,
+            )
+            first = report["first_folder"]
+            self.refresh_library(select=first.name)
+            self.refresh_roster()
+            self.load_fighter(first)
+
+            imported = report["imported"]
+            skipped = report["skipped"]
+            total_frames = 0
+            for variant, folder in imported:
+                try:
+                    meta = json.loads((folder / "fighter.json").read_text(encoding="utf-8"))
+                    total_frames += sum(meta.get("source", {}).get("frame_counts", {}).values())
+                except Exception:
+                    pass
+
+            self.set_status(
+                f"Imported {len(imported)} FFBE fighter(s), {total_frames} animation frames generated."
+            )
+            names = "\n".join(f"• {folder.name}" for _, folder in imported[:12])
+            more = f"\n• +{len(imported)-12} more" if len(imported) > 12 else ""
+            summary = (
+                f"Imported {len(imported)} FFBE fighter(s).\n\n"
+                f"{names}{more}\n\n"
+                f"Generated animation frames: {total_frames}\n"
+                f"Skipped: {len(skipped)}\n\n"
+                "Auto-mapped: idle, movement, hit, guard, KO, attack, magic, "
+                "Limit Burst, entrance, and victory where available.\n\n"
+                "All recognized original PNG sheets were preserved in ffbe_source/."
+            )
+            messagebox.showinfo("FFBE import complete", summary, parent=self.root)
+
+        except FFBEImportError as e:
+            self.set_status("FFBE import stopped. See the message for details.")
+            messagebox.showerror("FFBE import", str(e), parent=self.root)
+        except Exception as e:
+            self.set_status("FFBE import failed.")
+            messagebox.showerror("FFBE import", f"Unexpected FFBE import error:\n{e}", parent=self.root)
 
     def reset_current_fighter(self):
         """Discard unsaved edits for the current fighter and reload fighter.json."""
