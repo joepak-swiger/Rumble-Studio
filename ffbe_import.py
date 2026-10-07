@@ -510,7 +510,10 @@ def import_ffbe_variant(
     meta = {
         "name": display,
         "franchise": old.get("franchise", "Final Fantasy"),
+        "series_game": old.get("series_game", ""),
+        "character_family": old.get("character_family", display),
         "stage": old.get("stage", ""),
+        "source_tier": old.get("source_tier", _ffbe_source_tier(variant.label)),
         "native_facing": old.get("native_facing", "left"),
         "allow_horizontal_flip": old.get("allow_horizontal_flip", True),
         "scale": old.get("scale", 1.6),

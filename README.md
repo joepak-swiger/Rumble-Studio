@@ -8,6 +8,7 @@ It creates autonomous battles between sprite-based fighters and renders the resu
 
 - Free-for-all automated battles
 - Universal fighter system
+- Universal fighter identity metadata (franchise, series/game, family, form/variant, source tier)
 - Melee, projectile, and beam attacks
 - HP, knockouts, eliminations, and winner detection
 - Fighter AI personalities
@@ -32,7 +33,7 @@ Personal sprite collections, MUGEN characters, imported fighters, and rendered v
 
 ## Development Status
 
-Current baseline: v0.16.2
+Current baseline: v0.16.3
 
 Rumble Studio is under active development.
 

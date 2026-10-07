@@ -116,7 +116,10 @@ def fighter_summary(pack: str) -> dict:
         "pack": pack,
         "name": str(meta.get("name", pack)),
         "franchise": str(meta.get("franchise", "Custom") or "Custom"),
+        "series_game": str(meta.get("series_game", "") or "").strip(),
+        "character_family": str(meta.get("character_family", "") or "").strip(),
         "stage": stage,
+        "source_tier": str(meta.get("source_tier", "") or "").strip(),
         "meta": meta,
     }
 
@@ -125,14 +128,31 @@ def all_fighter_summaries() -> List[dict]:
     return [fighter_summary(p) for p in list_fighter_packs()]
 
 
-def matches_filters(info: dict, search: str = "", franchise: str = "", stage: str = "") -> bool:
+def matches_filters(
+    info: dict,
+    search: str = "",
+    franchise: str = "",
+    stage: str = "",
+    series_game: str = "",
+) -> bool:
     q = (search or "").strip().lower()
     if q:
-        haystack = " ".join([info.get("name", ""), info.get("franchise", ""), info.get("stage", ""), info.get("pack", "")]).lower()
+        haystack = " ".join([
+            info.get("name", ""),
+            info.get("franchise", ""),
+            info.get("series_game", ""),
+            info.get("character_family", ""),
+            info.get("stage", ""),
+            info.get("source_tier", ""),
+            info.get("pack", ""),
+        ]).lower()
         if q not in haystack:
             return False
     if franchise and franchise not in ("All franchises", "MULTIVERSE (spread franchises)"):
         if info.get("franchise", "").lower() != franchise.lower():
+            return False
+    if series_game and series_game != "All series / games":
+        if info.get("series_game", "").lower() != series_game.lower():
             return False
     if stage and stage not in ("All stages", "Any stage"):
         if info.get("stage", "").lower() != stage.lower():
@@ -200,7 +220,10 @@ def unique_asset_name(slot: str, src: Path, used: set[str]) -> str:
 def save_fighter_pack(
     display_name: str,
     franchise: str,
+    series_game: str,
+    character_family: str,
     stage_form: str,
+    source_tier: str,
     native_facing: str,
     allow_flip: bool,
     scale: float,
@@ -263,7 +286,10 @@ def save_fighter_pack(
     meta = {
         "name": display_name,
         "franchise": franchise.strip() or "Custom",
+        "series_game": series_game.strip(),
+        "character_family": character_family.strip(),
         "stage": stage_form.strip(),
+        "source_tier": source_tier.strip(),
         "native_facing": native_facing,
         "allow_horizontal_flip": bool(allow_flip),
         "scale": round(float(scale), 3),
@@ -526,7 +552,7 @@ class TransformationDialog(tk.Toplevel):
 class StudioApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Rumble Studio v0.16.2 — FFBE Animation Repair")
+        self.root.title("Rumble Studio v0.16.3 — Universal Fighter Identity")
         self.root.geometry("1220x830")
         self.root.minsize(1050, 720)
 
@@ -572,13 +598,17 @@ class StudioApp:
 
         self.name_var = tk.StringVar()
         self.franchise_var = tk.StringVar(value="Custom")
+        self.series_game_var = tk.StringVar(value="")
+        self.character_family_var = tk.StringVar(value="")
         self.stage_var = tk.StringVar(value="")
+        self.source_tier_var = tk.StringVar(value="")
         self.facing_var = tk.StringVar(value="right")
 
         # Library + roster search/filter controls. These are intentionally shared
         # concepts so large crossover libraries stay manageable.
         self.library_search_var = tk.StringVar()
         self.library_franchise_filter_var = tk.StringVar(value="All franchises")
+        self.library_series_filter_var = tk.StringVar(value="All series / games")
         self.library_stage_filter_var = tk.StringVar(value="All stages")
         self.roster_search_var = tk.StringVar()
         self.roster_franchise_filter_var = tk.StringVar(value="All franchises")
@@ -639,7 +669,7 @@ class StudioApp:
         # Library sidebar
         side = ttk.LabelFrame(outer, text="Fighter Library", padding=8)
         side.grid(row=0, column=0, sticky="nsw", padx=(0, 10))
-        side.rowconfigure(5, weight=1)
+        side.rowconfigure(6, weight=1)
 
         ttk.Label(side, text="Search saved fighters").grid(row=0, column=0, columnspan=2, sticky="w")
         lib_search = ttk.Entry(side, textvariable=self.library_search_var, width=25)
@@ -651,30 +681,37 @@ class StudioApp:
         )
         self.library_franchise_combo.grid(row=2, column=0, columnspan=2, sticky="ew", pady=2)
         self.library_franchise_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_library())
+
+        self.library_series_combo = ttk.Combobox(
+            side, textvariable=self.library_series_filter_var, state="readonly", width=22
+        )
+        self.library_series_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=2)
+        self.library_series_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_library())
+
         self.library_stage_combo = ttk.Combobox(
             side, textvariable=self.library_stage_filter_var, state="readonly", width=22
         )
-        self.library_stage_combo.grid(row=3, column=0, columnspan=2, sticky="ew", pady=2)
+        self.library_stage_combo.grid(row=4, column=0, columnspan=2, sticky="ew", pady=2)
         self.library_stage_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_library())
 
-        ttk.Label(side, text="Saved fighters").grid(row=4, column=0, sticky="w", pady=(5, 0))
+        ttk.Label(side, text="Saved fighters").grid(row=5, column=0, sticky="w", pady=(5, 0))
         self.library = tk.Listbox(side, width=27, exportselection=False)
-        self.library.grid(row=5, column=0, sticky="nsew", pady=6)
+        self.library.grid(row=6, column=0, sticky="nsew", pady=6)
         self.library.bind("<<ListboxSelect>>", self.on_library_select)
         sb = ttk.Scrollbar(side, orient="vertical", command=self.library.yview)
-        sb.grid(row=5, column=1, sticky="ns", pady=6)
+        sb.grid(row=6, column=1, sticky="ns", pady=6)
         self.library.configure(yscrollcommand=sb.set)
-        ttk.Button(side, text="+ New Fighter", command=self.new_fighter).grid(row=6, column=0, columnspan=2, sticky="ew", pady=(2, 4))
+        ttk.Button(side, text="+ New Fighter", command=self.new_fighter).grid(row=7, column=0, columnspan=2, sticky="ew", pady=(2, 4))
         mugen_btn = ttk.Button(side, text="⚡ IMPORT MUGEN CHARACTER", command=self.import_mugen_gui)
-        mugen_btn.grid(row=7, column=0, columnspan=2, sticky="ew", pady=3)
-        ttk.Button(side, text="⚡ BATCH MUGEN FILES", command=self.import_mugen_batch_files_gui).grid(row=8, column=0, columnspan=2, sticky="ew", pady=3)
-        ttk.Button(side, text="📁 SCAN MUGEN FOLDER", command=self.import_mugen_batch_folder_gui).grid(row=9, column=0, columnspan=2, sticky="ew", pady=3)
+        mugen_btn.grid(row=8, column=0, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(side, text="⚡ BATCH MUGEN FILES", command=self.import_mugen_batch_files_gui).grid(row=9, column=0, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(side, text="📁 SCAN MUGEN FOLDER", command=self.import_mugen_batch_folder_gui).grid(row=10, column=0, columnspan=2, sticky="ew", pady=3)
         dwc_btn = ttk.Button(side, text="🦖 IMPORT DWC SPRITE SET", command=self.import_dwc_gui)
-        dwc_btn.grid(row=10, column=0, columnspan=2, sticky="ew", pady=3)
+        dwc_btn.grid(row=11, column=0, columnspan=2, sticky="ew", pady=3)
         ffbe_btn = ttk.Button(side, text="⚔ IMPORT FFBE SPRITE ZIP", command=self.import_ffbe_gui)
-        ffbe_btn.grid(row=11, column=0, columnspan=2, sticky="ew", pady=3)
-        ttk.Button(side, text="Duplicate Fighter", command=self.duplicate_fighter).grid(row=12, column=0, columnspan=2, sticky="ew", pady=3)
-        ttk.Button(side, text="Open Fighter Folder", command=self.open_fighter_folder).grid(row=13, column=0, columnspan=2, sticky="ew", pady=3)
+        ffbe_btn.grid(row=12, column=0, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(side, text="Duplicate Fighter", command=self.duplicate_fighter).grid(row=13, column=0, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(side, text="Open Fighter Folder", command=self.open_fighter_folder).grid(row=14, column=0, columnspan=2, sticky="ew", pady=3)
 
         # Main tabs
         self.tabs = ttk.Notebook(outer)
@@ -722,15 +759,27 @@ class StudioApp:
         ttk.Label(top, text="Native facing").grid(row=2, column=0, sticky="w", pady=3)
         ttk.Combobox(top, textvariable=self.facing_var, values=["left", "right"], state="readonly", width=10).grid(row=2, column=1, sticky="w")
         ttk.Checkbutton(top, text="Allow horizontal flip", variable=self.flip_var).grid(row=2, column=2, columnspan=2, sticky="w")
-        ttk.Label(top, text="Stage / Form").grid(row=3, column=0, sticky="w", pady=3)
-        ttk.Entry(top, textvariable=self.stage_var, width=15).grid(row=3, column=1, sticky="ew", padx=(0,12), pady=3)
-        ttk.Label(top, text="Examples: Rookie, Mega, Base, Super Saiyan", foreground="#666").grid(row=3, column=2, columnspan=4, sticky="w")
         ttk.Label(top, text="AI profile").grid(row=2, column=4, sticky="w")
         ttk.Combobox(top, textvariable=self.ai_profile_var, values=AI_PROFILES, state="readonly", width=13).grid(row=2, column=5, sticky="w")
         ttk.Label(top, text="Retaliation").grid(row=2, column=6, sticky="w")
         ttk.Entry(top, textvariable=self.retaliation_var, width=8).grid(row=2, column=7, sticky="w")
+
+        ttk.Label(top, text="Series / Game").grid(row=3, column=0, sticky="w", pady=3)
+        ttk.Entry(top, textvariable=self.series_game_var, width=15).grid(row=3, column=1, sticky="ew", padx=(0,12), pady=3)
+        ttk.Label(top, text="Character Family").grid(row=3, column=2, sticky="w", pady=3)
+        ttk.Entry(top, textvariable=self.character_family_var, width=15).grid(row=3, column=3, sticky="ew", padx=(0,12), pady=3)
+        ttk.Label(top, text="Source Tier").grid(row=3, column=4, sticky="w", pady=3)
+        ttk.Entry(top, textvariable=self.source_tier_var, width=15).grid(row=3, column=5, sticky="ew", padx=(0,12), pady=3)
         ttk.Label(top, text="Evasion").grid(row=3, column=6, sticky="w")
         ttk.Entry(top, textvariable=self.evasion_var, width=8).grid(row=3, column=7, sticky="w")
+
+        ttk.Label(top, text="Stage / Form / Variant").grid(row=4, column=0, sticky="w", pady=3)
+        ttk.Entry(top, textvariable=self.stage_var, width=15).grid(row=4, column=1, sticky="ew", padx=(0,12), pady=3)
+        ttk.Label(
+            top,
+            text="Examples: Rookie, Mega, Super Saiyan 3, Awakened, Brave Shift, Advent Children",
+            foreground="#666",
+        ).grid(row=4, column=2, columnspan=6, sticky="w")
 
         mid = ttk.Panedwindow(self.editor_tab, orient="horizontal")
         mid.grid(row=1, column=0, sticky="nsew", pady=10)
@@ -841,7 +890,7 @@ class StudioApp:
         self.transform_line_tree = ttk.Treeview(map_box, columns=mcols, show="tree headings", height=15)
         self.transform_line_tree.heading("#0", text="Fighter / Form")
         self.transform_line_tree.column("#0", width=190, stretch=True)
-        self.transform_line_tree.heading("stage", text="Stage")
+        self.transform_line_tree.heading("stage", text="Form / Variant")
         self.transform_line_tree.column("stage", width=82, anchor="center")
         self.transform_line_tree.heading("chance", text="Chance")
         self.transform_line_tree.column("chance", width=78, anchor="center")
@@ -866,7 +915,7 @@ class StudioApp:
         self.transform_current_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0,6))
         cols = ("target", "stage", "chance", "heal", "label")
         self.transform_tree = ttk.Treeview(branch_box, columns=cols, show="headings", height=12)
-        labels = {"target":"Target Fighter / Form", "stage":"Stage", "chance":"Chance", "heal":"Heal", "label":"Announce"}
+        labels = {"target":"Target Fighter / Form", "stage":"Form / Variant", "chance":"Chance", "heal":"Heal", "label":"Announce"}
         widths = {"target":165, "stage":82, "chance":62, "heal":52, "label":92}
         for c in cols:
             self.transform_tree.heading(c, text=labels[c])
@@ -1319,14 +1368,19 @@ class StudioApp:
     def _refresh_filter_choices(self):
         infos = all_fighter_summaries()
         franchises = sorted({i["franchise"] for i in infos if i["franchise"]}, key=str.lower)
+        series_games = sorted({i["series_game"] for i in infos if i["series_game"]}, key=str.lower)
         stages = sorted({i["stage"] for i in infos if i["stage"]}, key=str.lower)
 
         lib_fr = ["All franchises", *franchises]
+        lib_series = ["All series / games", *series_games]
         lib_st = ["All stages", *stages]
         self.library_franchise_combo["values"] = lib_fr
+        self.library_series_combo["values"] = lib_series
         self.library_stage_combo["values"] = lib_st
         if self.library_franchise_filter_var.get() not in lib_fr:
             self.library_franchise_filter_var.set("All franchises")
+        if self.library_series_filter_var.get() not in lib_series:
+            self.library_series_filter_var.set("All series / games")
         if self.library_stage_filter_var.get() not in lib_st:
             self.library_stage_filter_var.set("All stages")
 
@@ -1366,13 +1420,18 @@ class StudioApp:
                 i, self.library_search_var.get(),
                 self.library_franchise_filter_var.get(),
                 self.library_stage_filter_var.get(),
+                self.library_series_filter_var.get(),
             )
         ]
         self.library.delete(0, "end")
         items = []
         for info in infos:
-            stage = f" • {info['stage']}" if info["stage"] else ""
-            self.library.insert("end", f"{info['name']}  [{info['franchise']}{stage}]")
+            bits = [info["franchise"]]
+            if info.get("series_game"):
+                bits.append(info["series_game"])
+            if info.get("stage"):
+                bits.append(info["stage"])
+            self.library.insert("end", f"{info['name']}  [{' • '.join(bits)}]")
             items.append(info["pack"])
         self.library.pack_names = items
         if select in items:
@@ -1407,7 +1466,10 @@ class StudioApp:
         self.current_folder = None
         self.name_var.set("")
         self.franchise_var.set("Custom")
+        self.series_game_var.set("")
+        self.character_family_var.set("")
         self.stage_var.set("")
+        self.source_tier_var.set("")
         self.facing_var.set("right")
         self.flip_var.set(True)
         self.scale_var.set("4.0")
@@ -1984,8 +2046,11 @@ class StudioApp:
         self.current_folder = folder
         self.name_var.set(str(meta.get("name", folder.name)))
         self.franchise_var.set(str(meta.get("franchise", "Custom")))
+        self.series_game_var.set(str(meta.get("series_game", "") or ""))
+        self.character_family_var.set(str(meta.get("character_family", "") or ""))
         source = meta.get("source", {}) if isinstance(meta.get("source", {}), dict) else {}
         self.stage_var.set(str(meta.get("stage", "") or source.get("stage", "") or ""))
+        self.source_tier_var.set(str(meta.get("source_tier", "") or ""))
         self.facing_var.set(str(meta.get("native_facing", "right")))
         self.flip_var.set(bool(meta.get("allow_horizontal_flip", True)))
         self.scale_var.set(str(meta.get("scale", 4.0)))
@@ -2930,7 +2995,10 @@ class StudioApp:
             folder = save_fighter_pack(
                 display_name=name,
                 franchise=self.franchise_var.get(),
+                series_game=self.series_game_var.get(),
+                character_family=self.character_family_var.get(),
                 stage_form=self.stage_var.get(),
+                source_tier=self.source_tier_var.get(),
                 native_facing=self.facing_var.get(),
                 allow_flip=self.flip_var.get(),
                 scale=scale,

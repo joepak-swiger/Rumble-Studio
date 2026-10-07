@@ -1,5 +1,18 @@
 # Rumble Studio Changelog
 
+## v0.16.3
+
+### Universal Fighter Identity
+
+- Added Series / Game, Character Family, and Source Tier fields.
+- Renamed Stage / Form to Stage / Form / Variant.
+- Added a Series / Game filter to the Fighter Library.
+- Library search now includes series, family, form/variant, and source tier.
+- FFBE imports preserve the new identity fields and derive 6★ / NV / Brave Shift source tiers where possible.
+- Legacy Final Fantasy FFI/FFII/etc. stage labels are migrated locally into Series / Game.
+- Transformation graphs remain unrestricted for linear or branching form systems.
+
+
 ## v0.16.2
 
 ### FFBE Animation Repair
